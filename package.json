@@ -1,7 +1,7 @@
 {
-  "name": "mahsr-safety-audit-portal",
+  "name": "protecther-audit-panel",
   "version": "1.0.0",
-  "description": "MAHSR Safety Audit Management Portal - Mumbai-Ahmedabad High Speed Rail Project",
+  "description": "PROTECTHER Audit Panel - Construction Safety Audit Management System",
   "private": true,
   "workspaces": [
     "frontend",

@@ -48,7 +48,7 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Custom MAHSR colors
+        // Custom audit status colors
         compliant: "#22C55E",
         "non-compliant": "#EF4444",
         "not-applicable": "#94A3B8",

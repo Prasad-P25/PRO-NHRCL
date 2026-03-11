@@ -41,6 +41,10 @@ Thumbs.db
 uploads/*
 !uploads/.gitkeep
 
+# Database backups
+backups/*
+!backups/.gitkeep
+
 # Test coverage
 coverage/
 

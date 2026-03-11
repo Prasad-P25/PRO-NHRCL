@@ -233,4 +233,24 @@ export async function getPackageManagers(packageId: number): Promise<number[]> {
   return result.rows.map(r => r.id);
 }
 
+// Helper to get package managers with email for a package
+export async function getPackageManagersWithEmail(packageId: number): Promise<Array<{ id: number; email: string; name: string }>> {
+  const result = await db.query(
+    `SELECT u.id, u.email, u.name FROM users u
+     JOIN roles r ON u.role_id = r.id
+     WHERE u.package_id = $1 AND r.name = 'Package Manager' AND u.is_active = true`,
+    [packageId]
+  );
+  return result.rows;
+}
+
+// Helper to get user email by ID
+export async function getUserEmail(userId: number): Promise<{ email: string; name: string } | null> {
+  const result = await db.query(
+    `SELECT email, name FROM users WHERE id = $1 AND is_active = true`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
 export const notificationController = new NotificationController();

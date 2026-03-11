@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Eye, Edit, Trash2, Loader2, RefreshCw, FileDown } from 'lucide-react';
+import { Plus, Search, Eye, Edit, Trash2, Loader2, RefreshCw, FileDown, Building2 } from 'lucide-react';
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
+import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +38,7 @@ const statusOptions: { value: string; label: string }[] = [
 ];
 
 export function AuditListPage() {
+  const currentProject = useAppStore((state) => state.currentProject);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [exportingId, setExportingId] = useState<number | null>(null);
@@ -52,12 +56,13 @@ export function AuditListPage() {
   };
 
   const { data: auditsData, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['audits', statusFilter],
+    queryKey: ['audits', statusFilter, currentProject?.id],
     queryFn: async () => {
       const params = statusFilter !== 'all' ? { status: statusFilter } : {};
       const response = await auditService.getAudits(params);
       return response.data;
     },
+    enabled: !!currentProject,
   });
 
   const audits = auditsData || [];
@@ -86,14 +91,7 @@ export function AuditListPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading audits...</p>
-        </div>
-      </div>
-    );
+    return <ListPageSkeleton />;
   }
 
   if (isError) {
@@ -118,15 +116,17 @@ export function AuditListPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Audits</h1>
-          <p className="text-muted-foreground">
-            Manage and track safety audits across all packages
-          </p>
-        </div>
-        <Button asChild>
+    <ProjectGuard>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Audits</h1>
+            <p className="text-muted-foreground flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              {currentProject?.name || 'Select a project'}
+            </p>
+          </div>
+          <Button asChild>
           <Link to="/audits/new">
             <Plus className="mr-2 h-4 w-4" />
             New Audit
@@ -271,5 +271,6 @@ export function AuditListPage() {
         </CardContent>
       </Card>
     </div>
+    </ProjectGuard>
   );
 }

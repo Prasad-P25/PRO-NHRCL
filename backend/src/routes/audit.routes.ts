@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import { AuditController } from '../controllers/audit.controller';
 import { authenticate, authorize } from '../middleware/auth';
+import { uploadLimiter } from '../middleware/rateLimiter';
 import multer from 'multer';
 import path from 'path';
 
@@ -78,9 +79,27 @@ router.get('/:id/responses', auditController.getAuditResponses);
 
 router.post('/:id/responses', auditController.saveAuditResponses);
 
-// Evidence upload
+// Audit history (change log)
+router.get('/:id/history', auditController.getAuditHistory);
+
+// Audit comments
+router.get('/:id/comments', auditController.getAuditComments);
+router.post('/:id/comments', auditController.addAuditComment);
+router.delete('/:id/comments/:commentId', auditController.deleteAuditComment);
+
+// Audit attachments
+router.get('/:id/attachments', auditController.getAuditAttachments);
+router.post(
+  '/:id/attachments',
+  upload.single('file'),
+  auditController.uploadAuditAttachment
+);
+router.delete('/:id/attachments/:attachmentId', auditController.deleteAuditAttachment);
+
+// Evidence upload - rate limited (10 uploads per minute)
 router.post(
   '/responses/:responseId/evidence',
+  uploadLimiter,
   upload.single('file'),
   auditController.uploadEvidence
 );

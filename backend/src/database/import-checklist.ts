@@ -104,7 +104,7 @@ function parseSheet(ws: XLSX.WorkSheet): Section[] {
 
 async function importChecklist() {
   try {
-    const filePath = 'c:/Users/prasa/Downloads/MAHSR V5.xlsx';
+    const filePath = 'c:/Users/prasa/Downloads/Audit_Checklist.xlsx';
     logger.info('Reading Excel file: ' + filePath);
 
     const wb = XLSX.readFile(filePath);

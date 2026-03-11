@@ -6,6 +6,7 @@ import {
   Package as PackageIcon,
   MapPin,
   Building2,
+  AlertCircle,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +40,7 @@ import {
 } from '@/components/ui/dialog';
 
 import settingsService from '@/services/settings.service';
+import { useAppStore } from '@/store/appStore';
 import type { Package } from '@/types';
 
 interface PackageFormData {
@@ -52,6 +54,7 @@ interface PackageFormData {
 
 export function PackageManagementPage() {
   const queryClient = useQueryClient();
+  const currentProject = useAppStore((state) => state.currentProject);
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingPackage, setEditingPackage] = useState<Package | null>(null);
@@ -60,17 +63,18 @@ export function PackageManagementPage() {
     name: '',
   });
 
-  // Fetch packages
+  // Fetch packages - include currentProject.id in queryKey to refresh on project change
   const { data: packagesData, isLoading } = useQuery({
-    queryKey: ['packages'],
+    queryKey: ['packages', currentProject?.id],
     queryFn: () => settingsService.getPackages(),
+    enabled: !!currentProject,
   });
 
   // Create mutation
   const createMutation = useMutation({
     mutationFn: (data: PackageFormData) => settingsService.createPackage(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
+      queryClient.invalidateQueries({ queryKey: ['packages', currentProject?.id] });
       setShowDialog(false);
       setFormData({ code: '', name: '' });
     },
@@ -81,7 +85,7 @@ export function PackageManagementPage() {
     mutationFn: ({ id, data }: { id: number; data: Partial<PackageFormData> }) =>
       settingsService.updatePackage(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
+      queryClient.invalidateQueries({ queryKey: ['packages', currentProject?.id] });
       setShowDialog(false);
       setEditingPackage(null);
       setFormData({ code: '', name: '' });
@@ -134,13 +138,30 @@ export function PackageManagementPage() {
     inactive: packages.filter((p) => p.status === 'Inactive').length,
   };
 
+  if (!currentProject) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertCircle className="h-5 w-5 text-amber-600" />
+            <p className="text-amber-800">
+              Please select a project from the header to manage packages.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Package Management</h1>
-          <p className="text-muted-foreground">Manage construction packages and contractors</p>
+          <p className="text-muted-foreground">
+            Managing packages for <span className="font-medium text-foreground">{currentProject.name}</span> ({currentProject.code})
+          </p>
         </div>
         <Button onClick={handleOpenCreate}>
           <Plus className="mr-2 h-4 w-4" />
@@ -241,7 +262,9 @@ export function PackageManagementPage() {
           <DialogHeader>
             <DialogTitle>{editingPackage ? 'Edit Package' : 'Add New Package'}</DialogTitle>
             <DialogDescription>
-              {editingPackage ? 'Update package details' : 'Create a new construction package'}
+              {editingPackage
+                ? 'Update package details'
+                : `Create a new construction package for ${currentProject.name}`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">

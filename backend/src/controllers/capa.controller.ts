@@ -3,13 +3,18 @@ import { validationResult } from 'express-validator';
 import { db } from '../database/connection';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
-import { createNotification, getPackageManagers } from './notification.controller';
+import { createNotification, getPackageManagers, getPackageManagersWithEmail, getUserEmail } from './notification.controller';
+import { emailService } from '../services/email.service';
+import { format } from 'date-fns';
+
+const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
 export class CAPAController {
   getAllCAPA = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { page = 1, pageSize = 20, status, packageId } = req.query;
       const offset = (Number(page) - 1) * Number(pageSize);
+      const projectId = req.projectId;
 
       let query = `
         SELECT c.*, ar.status as response_status, ai.audit_point,
@@ -23,6 +28,12 @@ export class CAPAController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (status) {
         query += ` AND c.status = $${paramIndex++}`;
@@ -133,11 +144,12 @@ export class CAPAController {
       if (auditInfo.rows.length > 0) {
         const { audit_number, package_id, package_code } = auditInfo.rows[0];
 
-        // Notify package managers
-        const managers = await getPackageManagers(package_id);
-        for (const managerId of managers) {
+        // Notify package managers (in-app + email)
+        const managers = await getPackageManagersWithEmail(package_id);
+        for (const manager of managers) {
+          // In-app notification
           await createNotification(
-            managerId,
+            manager.id,
             'capa_assigned',
             'New CAPA Created',
             `CAPA ${capaNumber} has been created for audit ${audit_number} (Package ${package_code})`,
@@ -149,6 +161,16 @@ export class CAPAController {
               priority: 'high',
             }
           );
+
+          // Send email notification
+          await emailService.sendCapaCreated(manager.email, {
+            capaNumber,
+            auditNumber: audit_number,
+            finding: findingDescription.substring(0, 200) + (findingDescription.length > 200 ? '...' : ''),
+            assigneeName: manager.name,
+            dueDate: targetDate ? format(new Date(targetDate), 'PPP') : 'Not set',
+            link: `${APP_URL}/capa?id=${result.rows[0].id}`,
+          });
         }
       }
 
@@ -251,6 +273,154 @@ export class CAPAController {
     }
   };
 
+  // CAPA Analytics endpoint
+  getAnalytics = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const projectId = req.projectId;
+      const projectFilter = projectId ? `AND p.project_id = ${projectId}` : '';
+
+      // Status breakdown
+      const statusResult = await db.query(`
+        SELECT c.status, COUNT(*) as count
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE 1=1 ${projectFilter}
+        GROUP BY c.status
+      `);
+
+      // Overdue analysis
+      const overdueResult = await db.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE c.target_date < CURRENT_DATE AND c.status != 'Closed') as overdue,
+          COUNT(*) FILTER (WHERE c.target_date >= CURRENT_DATE AND c.target_date <= CURRENT_DATE + INTERVAL '7 days' AND c.status != 'Closed') as due_this_week,
+          COUNT(*) FILTER (WHERE c.target_date > CURRENT_DATE + INTERVAL '7 days' AND c.status != 'Closed') as on_track,
+          COUNT(*) FILTER (WHERE c.status = 'Closed') as closed
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE 1=1 ${projectFilter}
+      `);
+
+      // CAPA by package
+      const byPackageResult = await db.query(`
+        SELECT
+          p.code as package_code,
+          p.name as package_name,
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE c.status = 'Open') as open_count,
+          COUNT(*) FILTER (WHERE c.status = 'In Progress') as in_progress,
+          COUNT(*) FILTER (WHERE c.status = 'Closed') as closed
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE 1=1 ${projectFilter}
+        GROUP BY p.id, p.code, p.name
+        ORDER BY total DESC
+      `);
+
+      // Monthly trend (last 6 months)
+      const trendResult = await db.query(`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', c.created_at), 'Mon') as month,
+          DATE_TRUNC('month', c.created_at) as month_date,
+          COUNT(*) as created,
+          COUNT(*) FILTER (WHERE c.status = 'Closed') as closed
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE c.created_at >= NOW() - INTERVAL '6 months'
+        ${projectFilter}
+        GROUP BY DATE_TRUNC('month', c.created_at)
+        ORDER BY month_date
+      `);
+
+      // Average closure time
+      const closureTimeResult = await db.query(`
+        SELECT
+          AVG(EXTRACT(DAY FROM (c.closed_date - c.created_at::date))) as avg_closure_days
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE c.status = 'Closed'
+        AND c.closed_date IS NOT NULL
+        ${projectFilter}
+      `);
+
+      // Top overdue CAPAs
+      const topOverdueResult = await db.query(`
+        SELECT
+          c.id,
+          c.capa_number,
+          c.finding_description,
+          c.target_date,
+          c.status,
+          p.code as package_code,
+          CURRENT_DATE - c.target_date as days_overdue
+        FROM capa c
+        JOIN audit_responses ar ON c.response_id = ar.id
+        JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
+        WHERE c.target_date < CURRENT_DATE
+        AND c.status != 'Closed'
+        ${projectFilter}
+        ORDER BY days_overdue DESC
+        LIMIT 10
+      `);
+
+      // Build status object
+      const statusBreakdown: Record<string, number> = { Open: 0, 'In Progress': 0, Closed: 0 };
+      statusResult.rows.forEach((row) => {
+        statusBreakdown[row.status] = parseInt(row.count);
+      });
+
+      const overdueData = overdueResult.rows[0];
+
+      res.json({
+        success: true,
+        data: {
+          statusBreakdown,
+          overdueAnalysis: {
+            overdue: parseInt(overdueData?.overdue || 0),
+            dueThisWeek: parseInt(overdueData?.due_this_week || 0),
+            onTrack: parseInt(overdueData?.on_track || 0),
+            closed: parseInt(overdueData?.closed || 0),
+          },
+          byPackage: byPackageResult.rows.map((row) => ({
+            packageCode: row.package_code,
+            packageName: row.package_name,
+            total: parseInt(row.total),
+            open: parseInt(row.open_count),
+            inProgress: parseInt(row.in_progress),
+            closed: parseInt(row.closed),
+          })),
+          monthlyTrend: trendResult.rows.map((row) => ({
+            month: row.month,
+            created: parseInt(row.created),
+            closed: parseInt(row.closed),
+          })),
+          avgClosureDays: parseFloat(closureTimeResult.rows[0]?.avg_closure_days || 0).toFixed(1),
+          topOverdue: topOverdueResult.rows.map((row) => ({
+            id: row.id,
+            capaNumber: row.capa_number,
+            finding: row.finding_description?.substring(0, 100) + (row.finding_description?.length > 100 ? '...' : ''),
+            targetDate: row.target_date,
+            status: row.status,
+            packageCode: row.package_code,
+            daysOverdue: parseInt(row.days_overdue),
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   closeCAPA = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -258,7 +428,7 @@ export class CAPAController {
 
       // Get CAPA details before closing
       const capaResult = await db.query(
-        `SELECT c.capa_number, a.auditor_id, a.package_id
+        `SELECT c.capa_number, c.finding_description, a.auditor_id, a.package_id
          FROM capa c
          JOIN audit_responses ar ON c.response_id = ar.id
          JOIN audits a ON ar.audit_id = a.id
@@ -276,9 +446,23 @@ export class CAPAController {
         [req.user!.id, verificationRemarks || null, id]
       );
 
-      // Notify the auditor that CAPA was verified
+      // Notify the auditor that CAPA was verified (in-app + email)
       if (capaResult.rows.length > 0) {
-        const { capa_number, auditor_id } = capaResult.rows[0];
+        const { capa_number, finding_description, auditor_id, package_id } = capaResult.rows[0];
+
+        // Send email to package managers
+        const managers = await getPackageManagersWithEmail(package_id);
+        for (const manager of managers) {
+          await emailService.sendCapaCompleted(manager.email, {
+            capaNumber: capa_number,
+            finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
+            completedBy: req.user?.name || 'Verifier',
+            completedDate: format(new Date(), 'PPP'),
+            link: `${APP_URL}/capa?id=${id}`,
+          });
+        }
+
+        // In-app notification to auditor
         if (auditor_id && auditor_id !== req.user!.id) {
           await createNotification(
             auditor_id,
@@ -292,6 +476,18 @@ export class CAPAController {
               actionUrl: `/capa?id=${id}`,
             }
           );
+
+          // Send email to auditor
+          const auditorInfo = await getUserEmail(auditor_id);
+          if (auditorInfo) {
+            await emailService.sendCapaCompleted(auditorInfo.email, {
+              capaNumber: capa_number,
+              finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
+              completedBy: req.user?.name || 'Verifier',
+              completedDate: format(new Date(), 'PPP'),
+              link: `${APP_URL}/capa?id=${id}`,
+            });
+          }
         }
       }
 

@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const dbName = process.env.DB_NAME || 'mahsr_safety';
+const dbName = process.env.DB_NAME || 'protecther_audit';
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',

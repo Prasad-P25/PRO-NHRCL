@@ -10,6 +10,8 @@ export default defineConfig({
     },
     server: {
         port: 3000,
+        host: true,
+        allowedHosts: ['audit.protecther.in', 'localhost', '.localhost'],
         proxy: {
             '/api': {
                 target: 'http://localhost:5000',

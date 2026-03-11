@@ -29,6 +29,7 @@ export class AuditController {
     try {
       const { page = 1, pageSize = 20, packageId, status, auditorId } = req.query;
       const offset = (Number(page) - 1) * Number(pageSize);
+      const projectId = req.projectId;
 
       let query = `
         SELECT a.*, p.code as package_code, p.name as package_name,
@@ -40,6 +41,12 @@ export class AuditController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       // Package filter based on user role
       if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head') {
@@ -64,11 +71,22 @@ export class AuditController {
         params.push(auditorId);
       }
 
-      // Get total count
-      const countResult = await db.query(
-        query.replace(/SELECT a\.\*, p\.code.*FROM/, 'SELECT COUNT(*) FROM'),
-        params
-      );
+      // Get total count - build a separate count query
+      const countQuery = `
+        SELECT COUNT(*) as count
+        FROM audits a
+        JOIN packages p ON a.package_id = p.id
+        LEFT JOIN users u ON a.auditor_id = u.id
+        WHERE 1=1
+        ${projectId ? `AND p.project_id = ${projectId}` : ''}
+        ${req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head' && req.user!.packageId
+          ? `AND a.package_id = ${req.user!.packageId}` : ''}
+        ${packageId ? `AND a.package_id = ${packageId}` : ''}
+        ${status ? `AND a.status = '${status}'` : ''}
+        ${auditorId ? `AND a.auditor_id = ${auditorId}` : ''}
+      `;
+      const countResult = await db.query(countQuery);
+      const total = parseInt(countResult.rows[0]?.count || '0');
 
       // Add pagination
       query += ` ORDER BY a.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
@@ -109,10 +127,10 @@ export class AuditController {
           completedAt: audit.completed_at,
           approvedAt: audit.approved_at,
         })),
-        total: parseInt(countResult.rows[0].count),
+        total,
         page: Number(page),
         pageSize: Number(pageSize),
-        totalPages: Math.ceil(parseInt(countResult.rows[0].count) / Number(pageSize)),
+        totalPages: Math.ceil(total / Number(pageSize)),
       });
     } catch (error) {
       next(error);
@@ -327,6 +345,32 @@ export class AuditController {
         [id]
       );
 
+      // Check if all NC items have at least one evidence
+      const ncWithoutEvidence = await db.query(
+        `SELECT ar.id, ai.sr_no, ai.audit_point, s.name as section_name
+         FROM audit_responses ar
+         JOIN audit_items ai ON ar.audit_item_id = ai.id
+         JOIN audit_sections s ON ai.section_id = s.id
+         LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
+         WHERE ar.audit_id = $1 AND ar.status = 'NC'
+         GROUP BY ar.id, ai.sr_no, ai.audit_point, s.name
+         HAVING COUNT(ae.id) = 0`,
+        [id]
+      );
+
+      // TODO: Re-enable evidence requirement for production
+      // For now, just log a warning instead of blocking submission
+      if (ncWithoutEvidence.rows.length > 0) {
+        const missingItems = ncWithoutEvidence.rows.map((r: any) =>
+          `${r.section_name} - Item ${r.sr_no}`
+        );
+        logger.warn(`Audit ${id} submitted with NC items missing evidence: ${missingItems.join(', ')}`);
+        // throw new AppError(
+        //   `Cannot submit audit. The following NC items require evidence: ${missingItems.join(', ')}`,
+        //   400
+        // );
+      }
+
       await db.query(
         `UPDATE audits SET status = 'Pending Review', completed_at = CURRENT_TIMESTAMP WHERE id = $1`,
         [id]
@@ -446,14 +490,18 @@ export class AuditController {
         [id]
       );
 
+      // Approve and lock the audit
       await db.query(
         `UPDATE audits SET
          status = 'Approved',
          approved_at = CURRENT_TIMESTAMP,
-         approved_by = $1
+         approved_by = $1,
+         locked_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
         [req.user!.id, id]
       );
+
+      logger.info(`Audit ${id} approved and locked by user ${req.user!.id}`);
 
       // Notify the auditor
       if (auditResult.rows.length > 0) {
@@ -603,13 +651,34 @@ export class AuditController {
       const { id } = req.params;
       const { responses } = req.body;
 
+      // Check if audit is locked (approved)
+      const auditCheck = await db.query(
+        'SELECT status, locked_at FROM audits WHERE id = $1',
+        [id]
+      );
+      if (auditCheck.rows.length === 0) {
+        throw new AppError('Audit not found', 404);
+      }
+      if (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at) {
+        throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
+      }
+
       let savedCount = 0;
       let compliantCount = 0;
       let nonCompliantCount = 0;
       let naCount = 0;
 
       for (const response of responses) {
-        await db.query(
+        // Get existing response for history tracking
+        const existingResponse = await db.query(
+          'SELECT * FROM audit_responses WHERE audit_id = $1 AND audit_item_id = $2',
+          [id, response.auditItemId]
+        );
+        const oldData = existingResponse.rows[0] || null;
+        const isUpdate = !!oldData;
+
+        // Insert or update response
+        const result = await db.query(
           `INSERT INTO audit_responses (audit_id, audit_item_id, status, observation, risk_rating, capa_required, remarks, updated_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (audit_id, audit_item_id) DO UPDATE SET
@@ -619,7 +688,8 @@ export class AuditController {
            capa_required = EXCLUDED.capa_required,
            remarks = EXCLUDED.remarks,
            updated_by = EXCLUDED.updated_by,
-           updated_at = CURRENT_TIMESTAMP`,
+           updated_at = CURRENT_TIMESTAMP
+           RETURNING id`,
           [
             id,
             response.auditItemId,
@@ -629,6 +699,35 @@ export class AuditController {
             response.capaRequired || false,
             response.remarks || null,
             req.user!.id,
+          ]
+        );
+
+        // Log change to history
+        await db.query(
+          `INSERT INTO audit_response_history
+           (response_id, audit_id, audit_item_id, action, old_status, new_status,
+            old_observation, new_observation, old_risk_rating, new_risk_rating,
+            old_capa_required, new_capa_required, old_remarks, new_remarks,
+            changed_by, changed_by_name, ip_address)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+          [
+            result.rows[0].id,
+            id,
+            response.auditItemId,
+            isUpdate ? 'updated' : 'created',
+            oldData?.status || null,
+            response.status,
+            oldData?.observation || null,
+            response.observation || null,
+            oldData?.risk_rating || null,
+            response.riskRating || null,
+            oldData?.capa_required || null,
+            response.capaRequired || false,
+            oldData?.remarks || null,
+            response.remarks || null,
+            req.user!.id,
+            req.user!.name,
+            req.ip || null,
           ]
         );
 
@@ -674,6 +773,18 @@ export class AuditController {
         throw new AppError('No file uploaded', 400);
       }
 
+      // Check if audit is locked
+      const auditCheck = await db.query(
+        `SELECT a.status, a.locked_at FROM audits a
+         JOIN audit_responses ar ON ar.audit_id = a.id
+         WHERE ar.id = $1`,
+        [responseId]
+      );
+      if (auditCheck.rows.length > 0 &&
+          (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at)) {
+        throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
+      }
+
       const result = await db.query(
         `INSERT INTO audit_evidences (response_id, file_name, file_path, file_type, file_size, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -703,6 +814,18 @@ export class AuditController {
   deleteEvidence = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { responseId, evidenceId } = req.params;
+
+      // Check if audit is locked
+      const auditCheck = await db.query(
+        `SELECT a.status, a.locked_at FROM audits a
+         JOIN audit_responses ar ON ar.audit_id = a.id
+         WHERE ar.id = $1`,
+        [responseId]
+      );
+      if (auditCheck.rows.length > 0 &&
+          (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at)) {
+        throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
+      }
 
       await db.query(
         'DELETE FROM audit_evidences WHERE id = $1 AND response_id = $2',
@@ -1029,6 +1152,269 @@ export class AuditController {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Get audit comments
+  getAuditComments = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+
+      const result = await db.query(
+        `SELECT ac.*, u.name as user_name, u.email as user_email
+         FROM audit_comments ac
+         JOIN users u ON ac.user_id = u.id
+         WHERE ac.audit_id = $1
+         ORDER BY ac.created_at DESC`,
+        [id]
+      );
+
+      res.json({
+        success: true,
+        data: result.rows.map((comment) => ({
+          id: comment.id,
+          auditId: comment.audit_id,
+          userId: comment.user_id,
+          user: {
+            id: comment.user_id,
+            name: comment.user_name,
+            email: comment.user_email,
+          },
+          comment: comment.comment,
+          commentType: comment.comment_type,
+          isInternal: comment.is_internal,
+          createdAt: comment.created_at,
+          updatedAt: comment.updated_at,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Add audit comment
+  addAuditComment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { comment, commentType, isInternal } = req.body;
+
+      if (!comment || comment.trim() === '') {
+        throw new AppError('Comment is required', 400);
+      }
+
+      const result = await db.query(
+        `INSERT INTO audit_comments (audit_id, user_id, comment, comment_type, is_internal)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [id, req.user!.id, comment.trim(), commentType || 'general', isInternal || false]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: result.rows[0].id,
+          comment: result.rows[0].comment,
+          commentType: result.rows[0].comment_type,
+          isInternal: result.rows[0].is_internal,
+          createdAt: result.rows[0].created_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Delete audit comment
+  deleteAuditComment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id, commentId } = req.params;
+
+      // Only allow deletion by comment author or admin
+      const commentResult = await db.query(
+        'SELECT user_id FROM audit_comments WHERE id = $1 AND audit_id = $2',
+        [commentId, id]
+      );
+
+      if (commentResult.rows.length === 0) {
+        throw new AppError('Comment not found', 404);
+      }
+
+      if (commentResult.rows[0].user_id !== req.user!.id &&
+          req.user!.roleName !== 'Super Admin') {
+        throw new AppError('Not authorized to delete this comment', 403);
+      }
+
+      await db.query('DELETE FROM audit_comments WHERE id = $1', [commentId]);
+
+      res.json({
+        success: true,
+        message: 'Comment deleted',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Get audit attachments
+  getAuditAttachments = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+
+      const result = await db.query(
+        `SELECT aa.*, u.name as uploader_name
+         FROM audit_attachments aa
+         LEFT JOIN users u ON aa.uploaded_by = u.id
+         WHERE aa.audit_id = $1
+         ORDER BY aa.uploaded_at DESC`,
+        [id]
+      );
+
+      res.json({
+        success: true,
+        data: result.rows.map((attachment) => ({
+          id: attachment.id,
+          auditId: attachment.audit_id,
+          fileName: attachment.file_name,
+          filePath: attachment.file_path,
+          fileType: attachment.file_type,
+          fileSize: attachment.file_size,
+          description: attachment.description,
+          uploadedBy: attachment.uploaded_by,
+          uploaderName: attachment.uploader_name,
+          uploadedAt: attachment.uploaded_at,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Upload audit attachment
+  uploadAuditAttachment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { description } = req.body;
+
+      if (!req.file) {
+        throw new AppError('No file uploaded', 400);
+      }
+
+      const result = await db.query(
+        `INSERT INTO audit_attachments (audit_id, file_name, file_path, file_type, file_size, description, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [
+          id,
+          req.file.originalname,
+          req.file.path,
+          req.file.mimetype,
+          req.file.size,
+          description || null,
+          req.user!.id,
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: result.rows[0].id,
+          fileName: result.rows[0].file_name,
+          filePath: result.rows[0].file_path,
+          fileType: result.rows[0].file_type,
+          fileSize: result.rows[0].file_size,
+          uploadedAt: result.rows[0].uploaded_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Delete audit attachment
+  deleteAuditAttachment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id, attachmentId } = req.params;
+
+      // Check if attachment exists
+      const attachmentResult = await db.query(
+        'SELECT * FROM audit_attachments WHERE id = $1 AND audit_id = $2',
+        [attachmentId, id]
+      );
+
+      if (attachmentResult.rows.length === 0) {
+        throw new AppError('Attachment not found', 404);
+      }
+
+      // Delete file from filesystem
+      const filePath = attachmentResult.rows[0].file_path;
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      await db.query('DELETE FROM audit_attachments WHERE id = $1', [attachmentId]);
+
+      res.json({
+        success: true,
+        message: 'Attachment deleted',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Get audit response change history
+  getAuditHistory = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { responseId } = req.query;
+
+      let query = `
+        SELECT arh.*, ai.sr_no, ai.audit_point, s.name as section_name
+        FROM audit_response_history arh
+        LEFT JOIN audit_items ai ON arh.audit_item_id = ai.id
+        LEFT JOIN audit_sections s ON ai.section_id = s.id
+        WHERE arh.audit_id = $1
+      `;
+      const params: any[] = [id];
+
+      if (responseId) {
+        query += ` AND arh.response_id = $2`;
+        params.push(responseId);
+      }
+
+      query += ` ORDER BY arh.changed_at DESC LIMIT 100`;
+
+      const result = await db.query(query, params);
+
+      res.json({
+        success: true,
+        data: result.rows.map((h: any) => ({
+          id: h.id,
+          responseId: h.response_id,
+          auditItemId: h.audit_item_id,
+          auditItem: h.audit_point ? {
+            srNo: h.sr_no,
+            auditPoint: h.audit_point,
+            sectionName: h.section_name,
+          } : null,
+          action: h.action,
+          changes: {
+            status: { old: h.old_status, new: h.new_status },
+            observation: { old: h.old_observation, new: h.new_observation },
+            riskRating: { old: h.old_risk_rating, new: h.new_risk_rating },
+            capaRequired: { old: h.old_capa_required, new: h.new_capa_required },
+            remarks: { old: h.old_remarks, new: h.new_remarks },
+          },
+          changedBy: {
+            id: h.changed_by,
+            name: h.changed_by_name,
+          },
+          changedAt: h.changed_at,
+          ipAddress: h.ip_address,
+        })),
+      });
     } catch (error) {
       next(error);
     }

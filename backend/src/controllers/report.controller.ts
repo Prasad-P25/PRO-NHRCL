@@ -6,6 +6,7 @@ export class ReportController {
   getComplianceSummary = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId, startDate, endDate } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT p.code, p.name,
@@ -20,6 +21,12 @@ export class ReportController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND p.id = $${paramIndex++}`;
@@ -60,6 +67,7 @@ export class ReportController {
   getNCsSummary = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId, categoryId, riskRating } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT ar.*, ai.audit_point, ai.standard_reference, ai.priority,
@@ -75,6 +83,12 @@ export class ReportController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND a.package_id = $${paramIndex++}`;
@@ -122,16 +136,24 @@ export class ReportController {
   getCAPAStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT c.status, COUNT(*) as count
         FROM capa c
         JOIN audit_responses ar ON c.response_id = ar.id
         JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
         WHERE 1=1
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND a.package_id = $${paramIndex++}`;
@@ -148,14 +170,23 @@ export class ReportController {
         FROM capa c
         JOIN audit_responses ar ON c.response_id = ar.id
         JOIN audits a ON ar.audit_id = a.id
+        JOIN packages p ON a.package_id = p.id
         WHERE c.status NOT IN ('Closed') AND c.target_date < CURRENT_DATE
       `;
+      const overdueParams: any[] = [];
+      let overdueParamIndex = 1;
 
-      if (packageId) {
-        overdueQuery += ` AND a.package_id = $1`;
+      if (projectId) {
+        overdueQuery += ` AND p.project_id = $${overdueParamIndex++}`;
+        overdueParams.push(projectId);
       }
 
-      const overdueResult = await db.query(overdueQuery, packageId ? [packageId] : []);
+      if (packageId) {
+        overdueQuery += ` AND a.package_id = $${overdueParamIndex++}`;
+        overdueParams.push(packageId);
+      }
+
+      const overdueResult = await db.query(overdueQuery, overdueParams);
 
       res.json({
         success: true,
@@ -175,6 +206,7 @@ export class ReportController {
   getTrendAnalysis = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId, months = 12 } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT
@@ -183,11 +215,18 @@ export class ReportController {
           SUM(a.non_compliant_count) as total_ncs,
           COUNT(a.id) as audit_count
         FROM audits a
+        ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
         WHERE a.status IN ('Approved', 'Closed')
         AND a.created_at >= NOW() - INTERVAL '${months} months'
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND a.package_id = $${paramIndex++}`;
@@ -214,6 +253,8 @@ export class ReportController {
 
   getPackageComparison = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const projectId = req.projectId;
+
       const result = await db.query(
         `SELECT p.id, p.code, p.name,
                 COUNT(a.id) as total_audits,
@@ -225,6 +266,7 @@ export class ReportController {
          LEFT JOIN audit_responses ar ON a.id = ar.audit_id AND ar.status = 'NC'
          LEFT JOIN capa c ON ar.id = c.response_id AND c.status != 'Closed'
          WHERE p.status = 'Active'
+         ${projectId ? `AND p.project_id = ${projectId}` : ''}
          GROUP BY p.id, p.code, p.name
          ORDER BY p.code`
       );

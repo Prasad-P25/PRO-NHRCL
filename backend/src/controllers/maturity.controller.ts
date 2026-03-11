@@ -130,6 +130,7 @@ export class MaturityController {
   getAll = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId, status } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT ma.*, p.code as package_code, p.name as package_name,
@@ -141,6 +142,12 @@ export class MaturityController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND ma.package_id = $${paramIndex++}`;

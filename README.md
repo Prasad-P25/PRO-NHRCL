@@ -1,17 +1,18 @@
-# MAHSR Safety Audit Portal
+# PROTECTHER Audit Panel
 
-Mumbai-Ahmedabad High Speed Rail (MAHSR) Project - Safety Audit Management System
+Construction Safety Audit Management System by PROTECTHER
 
 ## Overview
 
-A comprehensive web-based safety audit management portal that enables multiple auditors to conduct safety audits simultaneously across different project sites and packages. This system replaces the Excel-based audit checklist (MAHSR_V5.xlsx) with a modern, scalable solution.
+A comprehensive web-based safety audit management portal that enables multiple auditors to conduct safety audits simultaneously across different project sites and packages. This system provides a modern, scalable solution for construction safety compliance management.
 
 ## Features
 
-- **Multi-user Audit Execution**: Concurrent audit execution across 7 packages
+- **Multi-Project Support**: Manage audits across multiple client projects
+- **Multi-user Audit Execution**: Concurrent audit execution across project packages
 - **22 Audit Categories**: 600+ checkpoint items covering statutory compliance, technical audits, and KPIs
 - **Role-Based Access Control**: Super Admin, PMC Head, Package Manager, Auditor, Contractor, Viewer
-- **KPI Tracking**: Leading and Lagging safety indicators
+- **KPI Tracking**: Leading and Lagging safety indicators (LTIFR, TRIFR)
 - **CAPA Management**: Corrective and Preventive Actions tracking
 - **Safety Maturity Assessment**: 5-level maturity model
 - **Real-time Dashboards**: Compliance metrics and trend analysis
@@ -38,7 +39,7 @@ A comprehensive web-based safety audit management portal that enables multiple a
 ## Project Structure
 
 ```
-nhsrcl/
+protecther-audit/
 ├── frontend/           # React frontend application
 │   ├── src/
 │   │   ├── components/ # UI components
@@ -56,7 +57,6 @@ nhsrcl/
 │   │   ├── database/    # DB connection & migrations
 │   │   └── utils/       # Utilities
 │   └── ...
-├── database/           # Database scripts
 └── docs/              # Documentation
 ```
 
@@ -72,7 +72,7 @@ nhsrcl/
 
 1. Clone the repository:
 ```bash
-cd C:\Projects\nhsrcl
+cd C:\Projects\PRO-NHRCL
 ```
 
 2. Install dependencies:
@@ -90,7 +90,7 @@ cp backend/.env.example backend/.env
 4. Set up the database:
 ```bash
 # Create database
-createdb mahsr_safety
+createdb protecther_audit
 
 # Run migrations
 npm run db:migrate
@@ -114,10 +114,10 @@ Use these credentials to test the application:
 
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@mahsr.com | admin123 |
-| PMC Head | pmchead@mahsr.com | demo123 |
-| Package Manager | manager.c2@mahsr.com | demo123 |
-| Auditor | auditor1@mahsr.com | demo123 |
+| Admin | admin@protecther.com | admin123 |
+| PMC Head | pmchead@protecther.com | demo123 |
+| Package Manager | manager.c2@protecther.com | demo123 |
+| Auditor | auditor1@protecther.com | demo123 |
 
 ## API Documentation
 
@@ -149,18 +149,6 @@ Base URL: `/api/v1`
 - `GET /dashboard/overview` - Get dashboard data
 - `GET /dashboard/kpi-summary` - Get KPI summary
 
-## Packages/Sites
-
-| Code | Name | Location |
-|------|------|----------|
-| C1 | Vadodara Corridor | Vadodara, Gujarat |
-| C2 | BKC Underground | Mumbai, Maharashtra |
-| C3 | Thane Region | Thane, Maharashtra |
-| C4 | Gujarat Corridor North | Anand-Vadodara |
-| C5 | Gujarat Corridor South | Surat Region |
-| C6 | Surat Region | Surat, Gujarat |
-| C7 | Ahmedabad Terminal | Ahmedabad, Gujarat |
-
 ## Audit Categories
 
 1. Statutory Compliance
@@ -184,7 +172,7 @@ Base URL: `/api/v1`
 
 ## License
 
-Proprietary - NHSRCL / MAHSR Project
+Proprietary - PROTECTHER
 
 ## Support
 

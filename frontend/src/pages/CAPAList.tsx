@@ -11,7 +11,11 @@ import {
   Eye,
   Edit,
   XCircle,
+  Building2,
 } from 'lucide-react';
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
+import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,6 +80,7 @@ function getPageTitle(pathname: string): { title: string; description: string } 
 export function CAPAListPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const currentProject = useAppStore((state) => state.currentProject);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => getInitialStatusFilter(location.pathname));
@@ -96,7 +101,7 @@ export function CAPAListPage() {
 
   // Fetch CAPAs
   const { data: capaData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['capas', statusFilter, packageFilter],
+    queryKey: ['capas', statusFilter, packageFilter, currentProject?.id],
     queryFn: async () => {
       const params: { status?: string; packageId?: number } = {};
       if (statusFilter !== 'all') params.status = statusFilter;
@@ -104,6 +109,7 @@ export function CAPAListPage() {
       const response = await capaService.getAll(params);
       return response.data;
     },
+    enabled: !!currentProject,
   });
 
   // Fetch packages for filter
@@ -228,14 +234,7 @@ export function CAPAListPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading CAPAs...</p>
-        </div>
-      </div>
-    );
+    return <ListPageSkeleton />;
   }
 
   if (isError) {
@@ -258,12 +257,14 @@ export function CAPAListPage() {
   }
 
   return (
+    <ProjectGuard>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{pageInfo.title}</h1>
-          <p className="text-muted-foreground">
-            {pageInfo.description}
+          <p className="text-muted-foreground flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {currentProject?.name || 'Select a project'}
           </p>
         </div>
       </div>
@@ -668,5 +669,6 @@ export function CAPAListPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </ProjectGuard>
   );
 }

@@ -6,7 +6,11 @@ import {
   TrendingUp,
   TrendingDown,
   Info,
+  Building2,
 } from 'lucide-react';
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
+import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,6 +71,7 @@ interface EntryFormData {
 
 export function KPIEntryPage() {
   const queryClient = useQueryClient();
+  const currentProject = useAppStore((state) => state.currentProject);
   const [selectedPackage, setSelectedPackage] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
@@ -75,7 +80,7 @@ export function KPIEntryPage() {
 
   // Fetch packages
   const { data: packages = [], isLoading: packagesLoading } = useQuery({
-    queryKey: ['packages'],
+    queryKey: ['packages', currentProject?.id],
     queryFn: async () => {
       const response = await auditService.getPackages();
       return response.data;
@@ -179,14 +184,7 @@ export function KPIEntryPage() {
   const isLoading = packagesLoading || indicatorsLoading;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+    return <ListPageSkeleton />;
   }
 
   const renderIndicatorTable = (indicatorList: KPIIndicator[], type: 'Leading' | 'Lagging') => (
@@ -335,12 +333,14 @@ export function KPIEntryPage() {
   );
 
   return (
+    <ProjectGuard>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">KPI Entry</h1>
-          <p className="text-muted-foreground">
-            Enter monthly KPI data for packages
+          <p className="text-muted-foreground flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {currentProject?.name || 'Select a project'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -480,5 +480,6 @@ export function KPIEntryPage() {
         </Tabs>
       )}
     </div>
+    </ProjectGuard>
   );
 }

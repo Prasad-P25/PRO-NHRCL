@@ -19,8 +19,16 @@ import {
   FileImage,
   FileText,
   FileDown,
+  Search,
+  AlertTriangle,
+  Filter,
+  CheckCircle2,
+  Printer,
+  Menu,
+  ChevronLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -42,7 +50,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { exportAuditReportPDF } from '@/lib/export';
 import { auditService } from '@/services/audit.service';
+import { AuditComments } from '@/components/audit/AuditComments';
+import { AuditAttachments } from '@/components/audit/AuditAttachments';
 import type { ResponseStatus, RiskRating, AuditItem, AuditResponseForm } from '@/types';
 
 interface Evidence {
@@ -94,8 +105,25 @@ export function AuditExecutionPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Search and filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'nc' | 'incomplete'>('all');
+
+  // CAPA summary dialog state
+  const [showCapaSummary, setShowCapaSummary] = useState(false);
+  const [capaCount, setCapaCount] = useState(0);
+
+  // Auto-save state
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [autoSaveEnabled] = useState(true); // Can be made configurable later
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+
   const photoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   // Fetch audit details
   const { data: auditData, isLoading: auditLoading, isError: auditError, refetch: refetchAudit } = useQuery({
@@ -172,9 +200,79 @@ export function AuditExecutionPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['audits'] });
-      navigate('/audits');
+      // Count CAPA items
+      const capaItems = Object.values(responses).filter(r => r.capaRequired).length;
+      const ncItems = Object.values(responses).filter(r => r.status === 'NC').length;
+      setCapaCount(ncItems > 0 ? ncItems : capaItems);
+      setShowCapaSummary(true);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || 'Failed to submit audit. Please try again.';
+      alert(message);
     },
   });
+
+  // Refs to hold current values for auto-save (avoids stale closure)
+  const responsesRef = useRef(responses);
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+  const isSavingRef = useRef(isSaving);
+
+  useEffect(() => {
+    responsesRef.current = responses;
+  }, [responses]);
+
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    isSavingRef.current = isSaving;
+  }, [isSaving]);
+
+  // Auto-save effect - saves every 30 seconds if there are unsaved changes
+  useEffect(() => {
+    if (!autoSaveEnabled || !auditData || auditData.status === 'Approved' || auditData.status === 'Pending Review') {
+      return;
+    }
+
+    const autoSaveInterval = setInterval(() => {
+      console.log('Auto-save check:', { hasUnsaved: hasUnsavedChangesRef.current, isSaving: isSavingRef.current });
+
+      if (hasUnsavedChangesRef.current && !isSavingRef.current) {
+        const currentResponses = responsesRef.current;
+        const responsesToSave: AuditResponseForm[] = Object.values(currentResponses)
+          .filter((r) => r.status !== null)
+          .map((r) => ({
+            auditItemId: r.auditItemId,
+            status: r.status!,
+            observation: r.observation || undefined,
+            riskRating: r.riskRating || undefined,
+            capaRequired: r.capaRequired,
+            remarks: r.remarks || undefined,
+          }));
+
+        if (responsesToSave.length > 0) {
+          console.log('Auto-saving', responsesToSave.length, 'responses...');
+          setIsSaving(true);
+          saveMutation.mutateAsync(responsesToSave)
+            .then(() => {
+              setHasUnsavedChanges(false);
+              console.log('Auto-save complete');
+            })
+            .catch((err) => {
+              console.error('Auto-save failed:', err);
+            })
+            .finally(() => {
+              setIsSaving(false);
+            });
+        }
+      }
+    }, 15000); // 15 seconds (for testing, can increase to 30000 for production)
+
+    return () => {
+      clearInterval(autoSaveInterval);
+    };
+  }, [autoSaveEnabled, auditData?.status, saveMutation]);
 
   const isLoading = auditLoading || responsesLoading || categoriesLoading;
 
@@ -252,6 +350,7 @@ export function AuditExecutionPage() {
         ...updates,
       },
     }));
+    setHasUnsavedChanges(true);
   };
 
   const toggleCategory = (categoryId: number) => {
@@ -292,6 +391,7 @@ export function AuditExecutionPage() {
 
     try {
       await saveMutation.mutateAsync(responsesToSave);
+      setHasUnsavedChanges(false);
     } finally {
       setIsSaving(false);
     }
@@ -313,6 +413,53 @@ export function AuditExecutionPage() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleExportPDF = () => {
+    if (!auditData || !categories) return;
+
+    // Calculate summary
+    const allResponses = Object.values(responses);
+    const summary = {
+      totalItems: totalItems,
+      compliant: allResponses.filter((r) => r.status === 'C').length,
+      nonCompliant: allResponses.filter((r) => r.status === 'NC').length,
+      notApplicable: allResponses.filter((r) => r.status === 'NA').length,
+      notVerified: allResponses.filter((r) => r.status === 'NV').length,
+    };
+
+    // Build categories data for PDF
+    const pdfCategories = categories.map((cat) => ({
+      name: `${cat.code}. ${cat.name}`,
+      sections: cat.sections.map((sec) => ({
+        name: `${sec.code}. ${sec.name}`,
+        items: (sec.items || []).map((item) => {
+          const resp = getResponse(item.id);
+          return {
+            srNo: item.srNo,
+            auditPoint: item.auditPoint,
+            status: resp.status || '-',
+            observation: resp.observation,
+            riskRating: resp.riskRating || undefined,
+            capaRequired: resp.capaRequired,
+          };
+        }),
+      })),
+    }));
+
+    exportAuditReportPDF({
+      auditNumber: auditData.auditNumber,
+      packageCode: auditData.package?.code || '',
+      packageName: auditData.package?.name || '',
+      auditType: auditData.auditType || 'Full',
+      scheduledDate: auditData.scheduledDate ? new Date(auditData.scheduledDate).toLocaleDateString() : '-',
+      status: auditData.status || 'Draft',
+      auditorName: auditData.auditor?.name || '-',
+      contractorRep: auditData.contractorRep || undefined,
+      compliancePercentage: auditData.compliancePercentage || Math.round((summary.compliant / (summary.totalItems - summary.notApplicable || 1)) * 100),
+      categories: pdfCategories,
+      summary,
+    });
   };
 
   const openDetailDialog = (item: AuditItem) => {
@@ -424,6 +571,68 @@ export function AuditExecutionPage() {
     }
   };
 
+  // Camera capture functions
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      setCameraStream(stream);
+      setIsCameraOpen(true);
+      // Wait for video element to be available
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Camera access failed:', error);
+      alert('Unable to access camera. Please check permissions or use file upload instead.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraOpen(false);
+  };
+
+  const capturePhoto = async () => {
+    if (!videoRef.current || !canvasRef.current || !selectedItem) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw video frame to canvas
+    ctx.drawImage(video, 0, 0);
+
+    // Add timestamp overlay
+    const timestamp = new Date().toLocaleString();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+    ctx.fillStyle = 'white';
+    ctx.font = '14px Arial';
+    ctx.fillText(`Captured: ${timestamp}`, 10, canvas.height - 10);
+
+    // Convert to blob and upload
+    canvas.toBlob(async (blob) => {
+      if (blob && selectedItem) {
+        const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        await handleFileUpload(file, selectedItem.id);
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.9);
+  };
+
   // Calculate progress
   const totalItems = categories.reduce((acc, cat) => acc + cat.itemCount, 0);
   const completedCount = Object.values(responses).filter((r) => r.status !== null).length;
@@ -450,12 +659,16 @@ export function AuditExecutionPage() {
       <button
         onClick={() => handleStatusChange(itemId, status)}
         className={cn(
-          'flex h-8 min-w-[44px] items-center justify-center gap-1 rounded-md border px-2 transition-colors text-xs font-medium',
+          // Mobile: larger touch targets (min 44x44px), Desktop: compact
+          'flex items-center justify-center gap-1 rounded-md border transition-colors font-medium',
+          'h-10 w-10 sm:h-8 sm:min-w-[44px] sm:w-auto sm:px-2', // Size
+          'text-sm sm:text-xs', // Font size
+          'active:scale-95', // Touch feedback
           isActive ? activeClass : 'hover:bg-muted text-muted-foreground'
         )}
         title={label}
       >
-        <Icon className="h-3.5 w-3.5" />
+        <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         <span className="hidden sm:inline">{shortLabel}</span>
       </button>
     );
@@ -506,7 +719,18 @@ export function AuditExecutionPage() {
               {auditData.status}
             </Badge>
           )}
-          <Button variant="outline" onClick={handleExportWord} disabled={isExporting}>
+          {/* Mobile: icon only, Desktop: icon + text */}
+          <Button variant="outline" size="icon" className="sm:hidden" onClick={handleExportPDF} title="Print PDF">
+            <Printer className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" className="hidden sm:flex" onClick={handleExportPDF}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print PDF
+          </Button>
+          <Button variant="outline" size="icon" className="sm:hidden" onClick={handleExportWord} disabled={isExporting} title="Export Word">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+          </Button>
+          <Button variant="outline" className="hidden sm:flex" onClick={handleExportWord} disabled={isExporting}>
             {isExporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -516,7 +740,10 @@ export function AuditExecutionPage() {
           </Button>
           {(auditData.status === 'Draft' || auditData.status === 'In Progress') && (
             <>
-              <Button variant="outline" onClick={handleSave} disabled={isSaving || saveMutation.isPending}>
+              <Button variant="outline" size="icon" className="sm:hidden" onClick={handleSave} disabled={isSaving || saveMutation.isPending} title="Save">
+                {isSaving || saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              </Button>
+              <Button variant="outline" className="hidden sm:flex" onClick={handleSave} disabled={isSaving || saveMutation.isPending}>
                 {isSaving || saveMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -524,7 +751,10 @@ export function AuditExecutionPage() {
                 )}
                 Save
               </Button>
-              <Button onClick={handleSubmit} disabled={submitMutation.isPending}>
+              <Button size="icon" className="sm:hidden" onClick={handleSubmit} disabled={submitMutation.isPending} title="Submit">
+                {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+              <Button className="hidden sm:flex" onClick={handleSubmit} disabled={submitMutation.isPending}>
                 {submitMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -551,43 +781,139 @@ export function AuditExecutionPage() {
           <Progress value={progress} className="h-2" />
           <div className="flex items-center justify-between mt-3 pt-3 border-t">
             <StatusLegend />
-            {lastSaved && (
-              <p className="text-xs text-muted-foreground">
-                Last saved at {lastSaved.toLocaleTimeString()}
-              </p>
-            )}
+            <div className="flex items-center gap-3 text-xs">
+              {isSaving && (
+                <span className="flex items-center gap-1 text-primary">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving...
+                </span>
+              )}
+              {!isSaving && hasUnsavedChanges && (
+                <span className="text-amber-600">Unsaved changes</span>
+              )}
+              {lastSaved && !isSaving && (
+                <span className="text-muted-foreground">
+                  {hasUnsavedChanges ? 'Last saved' : 'Saved'} at {lastSaved.toLocaleTimeString()}
+                </span>
+              )}
+              {autoSaveEnabled && !isSaving && (
+                <span className="text-muted-foreground/60">(auto-save on)</span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Mobile Category Toggle */}
+      <div className="lg:hidden">
+        <Button
+          variant="outline"
+          className="w-full justify-between"
+          onClick={() => setShowMobileSidebar(!showMobileSidebar)}
+        >
+          <span className="flex items-center gap-2">
+            <Menu className="h-4 w-4" />
+            Categories ({categories.length})
+          </span>
+          {showMobileSidebar ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </Button>
+      </div>
+
       {/* Audit Content */}
       <div className="grid gap-4 lg:grid-cols-4">
-        {/* Category Navigation */}
-        <Card className="lg:col-span-1">
+        {/* Category Navigation - Hidden on mobile unless toggled */}
+        <Card className={cn(
+          'lg:col-span-1',
+          showMobileSidebar ? 'block' : 'hidden lg:block'
+        )}>
           <CardHeader className="py-3">
-            <CardTitle className="text-sm">Categories</CardTitle>
+            <CardTitle className="text-sm flex items-center justify-between">
+              Categories
+              <Button
+                variant="ghost"
+                size="sm"
+                className="lg:hidden h-6 w-6 p-0"
+                onClick={() => setShowMobileSidebar(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="py-0">
+          <CardContent className="py-0 space-y-3">
+            {/* Search box */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search items..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+
+            {/* Filter buttons */}
+            <div className="flex gap-1">
+              <Button
+                variant={filterMode === 'all' ? 'default' : 'outline'}
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                onClick={() => setFilterMode('all')}
+              >
+                All
+              </Button>
+              <Button
+                variant={filterMode === 'nc' ? 'destructive' : 'outline'}
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                onClick={() => setFilterMode('nc')}
+              >
+                <X className="h-3 w-3 mr-1" />
+                NC
+              </Button>
+              <Button
+                variant={filterMode === 'incomplete' ? 'secondary' : 'outline'}
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                onClick={() => setFilterMode('incomplete')}
+              >
+                <Filter className="h-3 w-3 mr-1" />
+                Open
+              </Button>
+            </div>
+
             <nav className="space-y-1 pb-4">
-              {categories.map((category) => (
-                <button
-                  key={category.id}
-                  onClick={() => toggleCategory(category.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors',
-                    expandedCategories.includes(category.id)
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-muted'
-                  )}
-                >
-                  <span className="truncate">
-                    {category.code}. {category.name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {category.completedCount}/{category.itemCount}
-                  </span>
-                </button>
-              ))}
+              {categories.map((category) => {
+                // Count NC items in this category
+                const ncCount = category.sections?.reduce((acc, sec) => {
+                  return acc + (sec.items?.filter((item: AuditItem) => responses[item.id]?.status === 'NC').length || 0);
+                }, 0) || 0;
+
+                return (
+                  <button
+                    key={category.id}
+                    onClick={() => toggleCategory(category.id)}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors',
+                      expandedCategories.includes(category.id)
+                        ? 'bg-primary/10 text-primary'
+                        : 'hover:bg-muted'
+                    )}
+                  >
+                    <span className="truncate flex items-center gap-1">
+                      {category.code}. {category.name}
+                      {ncCount > 0 && (
+                        <span className="inline-flex items-center justify-center h-4 min-w-[16px] rounded-full bg-destructive text-[10px] text-white px-1">
+                          {ncCount}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {category.completedCount}/{category.itemCount}
+                    </span>
+                  </button>
+                );
+              })}
             </nav>
           </CardContent>
         </Card>
@@ -627,7 +953,24 @@ export function AuditExecutionPage() {
 
                         {expandedSections.includes(section.id) && (
                           <div className="border-t">
-                            {(section.items || []).map((item) => {
+                            {(section.items || [])
+                              .filter((item) => {
+                                // Apply search filter
+                                if (searchTerm) {
+                                  const search = searchTerm.toLowerCase();
+                                  const matchesSearch =
+                                    item.auditPoint?.toLowerCase().includes(search) ||
+                                    item.standardReference?.toLowerCase().includes(search) ||
+                                    String(item.srNo).includes(search);
+                                  if (!matchesSearch) return false;
+                                }
+                                // Apply status filter
+                                const response = getResponse(item.id);
+                                if (filterMode === 'nc' && response.status !== 'NC') return false;
+                                if (filterMode === 'incomplete' && response.status !== null) return false;
+                                return true;
+                              })
+                              .map((item) => {
                               const response = getResponse(item.id);
                               return (
                                 <div
@@ -715,6 +1058,18 @@ export function AuditExecutionPage() {
               </Card>
             ))}
         </div>
+      </div>
+
+      {/* Comments and Attachments Section */}
+      <div className="grid gap-4 md:grid-cols-2 mt-6">
+        <AuditComments
+          auditId={auditId}
+          readOnly={auditData.status === 'Approved'}
+        />
+        <AuditAttachments
+          auditId={auditId}
+          readOnly={auditData.status === 'Approved'}
+        />
       </div>
 
       {/* Detail Dialog */}
@@ -846,6 +1201,15 @@ export function AuditExecutionPage() {
                     }}
                   />
                   <Button
+                    variant="default"
+                    size="sm"
+                    disabled={isUploading}
+                    onClick={startCamera}
+                  >
+                    <Camera className="mr-2 h-4 w-4" />
+                    Capture Photo
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     disabled={isUploading}
@@ -854,7 +1218,7 @@ export function AuditExecutionPage() {
                     {isUploading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <Camera className="mr-2 h-4 w-4" />
+                      <FileImage className="mr-2 h-4 w-4" />
                     )}
                     Upload Photo
                   </Button>
@@ -869,9 +1233,36 @@ export function AuditExecutionPage() {
                     ) : (
                       <Paperclip className="mr-2 h-4 w-4" />
                     )}
-                    Upload Document
+                    Upload Doc
                   </Button>
                 </div>
+
+                {/* Camera Preview */}
+                {isCameraOpen && (
+                  <div className="mt-3 rounded-lg border bg-black p-2">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full rounded"
+                    />
+                    <canvas ref={canvasRef} className="hidden" />
+                    <div className="flex justify-center gap-2 mt-2">
+                      <Button onClick={capturePhoto} disabled={isUploading}>
+                        {isUploading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Camera className="mr-2 h-4 w-4" />
+                        )}
+                        Take Photo
+                      </Button>
+                      <Button variant="outline" onClick={stopCamera}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Display uploaded evidence */}
                 {getResponse(selectedItem.id).evidence.length > 0 && (
@@ -916,6 +1307,68 @@ export function AuditExecutionPage() {
             </Button>
             <Button onClick={() => setIsDetailDialogOpen(false)}>
               Save Response
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CAPA Summary Dialog */}
+      <Dialog open={showCapaSummary} onOpenChange={setShowCapaSummary}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-compliant" />
+              Audit Submitted Successfully
+            </DialogTitle>
+            <DialogDescription>
+              Your audit has been submitted for review.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {capaCount > 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-amber-800">CAPA Items Created</p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      <span className="font-bold text-lg">{capaCount}</span> non-compliant items have been flagged for corrective action.
+                    </p>
+                    <p className="text-xs text-amber-600 mt-2">
+                      Track progress in the CAPA module.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-green-800">No CAPA Items</p>
+                    <p className="text-sm text-green-700 mt-1">
+                      All audit items are compliant or not applicable.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="text-sm text-muted-foreground">
+              <p>Completed: {completedCount} / {totalItems} items</p>
+              <p>Compliance rate will be calculated after review.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            {capaCount > 0 && (
+              <Button variant="outline" onClick={() => navigate('/capa')}>
+                View CAPA List
+              </Button>
+            )}
+            <Button onClick={() => navigate('/audits')}>
+              Back to Audits
             </Button>
           </DialogFooter>
         </DialogContent>

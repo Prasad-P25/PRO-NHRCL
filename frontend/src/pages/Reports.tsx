@@ -18,6 +18,7 @@ import {
   Plus,
   History,
   RefreshCw,
+  Building2,
 } from 'lucide-react';
 import {
   LineChart,
@@ -67,6 +68,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
 import reportService, { type ReportFilters } from '@/services/report.service';
 import scheduledReportService, {
   type ScheduledReport,
@@ -103,6 +106,7 @@ const DAYS_OF_WEEK = [
 
 export function ReportsPage() {
   const queryClient = useQueryClient();
+  const currentProject = useAppStore((state) => state.currentProject);
   const [activeTab, setActiveTab] = useState('compliance');
   const [filters, setFilters] = useState<ReportFilters>({});
   const [selectedPackageId, setSelectedPackageId] = useState<string>('all');
@@ -127,7 +131,7 @@ export function ReportsPage() {
 
   // Fetch packages for filter
   const { data: packagesData } = useQuery({
-    queryKey: ['packages'],
+    queryKey: ['packages', currentProject?.id],
     queryFn: async () => {
       const response = await api.get('/packages');
       return response.data.data as Package[];
@@ -151,42 +155,42 @@ export function ReportsPage() {
 
   // Compliance Summary query
   const { data: complianceData, isLoading: complianceLoading } = useQuery({
-    queryKey: ['compliance-summary', filters],
+    queryKey: ['compliance-summary', filters, currentProject?.id],
     queryFn: () => reportService.getComplianceSummary(filters),
     enabled: activeTab === 'compliance',
   });
 
   // NC Summary query
   const { data: ncData, isLoading: ncLoading } = useQuery({
-    queryKey: ['nc-summary', filters],
+    queryKey: ['nc-summary', filters, currentProject?.id],
     queryFn: () => reportService.getNCsSummary(filters),
     enabled: activeTab === 'ncs',
   });
 
   // CAPA Status query
   const { data: capaData, isLoading: capaLoading } = useQuery({
-    queryKey: ['capa-status', filters],
+    queryKey: ['capa-status', filters, currentProject?.id],
     queryFn: () => reportService.getCAPAStatus(filters),
     enabled: activeTab === 'capa',
   });
 
   // Trend Analysis query
   const { data: trendData, isLoading: trendLoading } = useQuery({
-    queryKey: ['trend-analysis', filters],
+    queryKey: ['trend-analysis', filters, currentProject?.id],
     queryFn: () => reportService.getTrendAnalysis({ ...filters, months: 12 }),
     enabled: activeTab === 'trends',
   });
 
   // Package Comparison query
   const { data: comparisonData, isLoading: comparisonLoading } = useQuery({
-    queryKey: ['package-comparison'],
+    queryKey: ['package-comparison', currentProject?.id],
     queryFn: () => reportService.getPackageComparison(),
     enabled: activeTab === 'comparison',
   });
 
   // KPI Report query
   const { data: kpiData, isLoading: kpiLoading } = useQuery({
-    queryKey: ['kpi-report', selectedPackageId, kpiMonth, kpiYear],
+    queryKey: ['kpi-report', selectedPackageId, kpiMonth, kpiYear, currentProject?.id],
     queryFn: () =>
       reportService.getKPISummary({
         packageId: selectedPackageId !== 'all' ? parseInt(selectedPackageId) : undefined,
@@ -504,12 +508,16 @@ export function ReportsPage() {
   };
 
   return (
+    <ProjectGuard>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground">Generate and export safety audit reports</p>
+          <p className="text-muted-foreground flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {currentProject?.name || 'Select a project'}
+          </p>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1504,6 +1512,7 @@ export function ReportsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </ProjectGuard>
   );
 }
 

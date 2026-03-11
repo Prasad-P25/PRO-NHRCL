@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/store/authStore';
+import { useAppStore } from '@/store/appStore';
 import { authService } from '@/services/auth.service';
+import projectService from '@/services/project.service';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -20,8 +22,25 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export function LoginPage() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
+  const { setCurrentProject, setAvailableProjects } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Helper function to fetch and set default project
+  const loadAndSetDefaultProject = async () => {
+    try {
+      const projects = await projectService.getUserProjects();
+      setAvailableProjects(projects);
+
+      // Find default project or use first one
+      const defaultProject = projects.find(p => p.isDefault) || projects[0];
+      if (defaultProject) {
+        setCurrentProject(defaultProject);
+      }
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+    }
+  };
 
   const {
     register,
@@ -39,6 +58,8 @@ export function LoginPage() {
       const response = await authService.login(data);
       if (response.success) {
         setAuth(response.data.user, response.data.token);
+        // Load and set default project after login
+        await loadAndSetDefaultProject();
         navigate('/');
       }
     } catch (err: any) {
@@ -48,20 +69,27 @@ export function LoginPage() {
     }
   };
 
-  // Demo login function
-  const handleDemoLogin = () => {
-    setAuth(
-      {
-        id: 1,
-        email: 'demo@mahsr.com',
-        name: 'Demo User',
-        role: { id: 4, name: 'Auditor', permissions: {} },
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      },
-      'demo-token'
-    );
-    navigate('/');
+  // Demo login function - uses real admin credentials
+  const handleDemoLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await authService.login({
+        email: 'admin@protecther.com',
+        password: 'admin123',
+      });
+      if (response.success) {
+        setAuth(response.data.user, response.data.token);
+        // Load and set default project after login
+        await loadAndSetDefaultProject();
+        navigate('/');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Demo login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -69,11 +97,11 @@ export function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground text-2xl font-bold">
-            M
+            P
           </div>
-          <CardTitle className="text-2xl">MAHSR Safety Audit Portal</CardTitle>
+          <CardTitle className="text-2xl">PROTECTHER Audit Panel</CardTitle>
           <CardDescription>
-            Mumbai-Ahmedabad High Speed Rail Project
+            Construction Safety Audit Management System
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -89,7 +117,7 @@ export function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="auditor@mahsr.com"
+                placeholder="auditor@protecther.com"
                 {...register('email')}
               />
               {errors.email && (
@@ -144,7 +172,7 @@ export function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            &copy; 2026 MAHSR Project - Safety Audit Portal
+            &copy; 2026 PROTECTHER - Safety Audit Management
           </p>
         </CardContent>
       </Card>

@@ -19,25 +19,42 @@ async function seed() {
     `);
     logger.info('Roles seeded');
 
-    // Seed Packages
-    await db.query(`
-      INSERT INTO packages (code, name, location, contractor_name) VALUES
-      ('C1', 'Vadodara Corridor', 'Vadodara, Gujarat', 'L&T Construction'),
-      ('C2', 'BKC Underground', 'Mumbai, Maharashtra', 'Afcons Infrastructure'),
-      ('C3', 'Thane Region', 'Thane, Maharashtra', 'Tata Projects'),
-      ('C4', 'Gujarat Corridor North', 'Anand-Vadodara', 'J Kumar Infra'),
-      ('C5', 'Gujarat Corridor South', 'Surat Region', 'NCC Limited'),
-      ('C6', 'Surat Region', 'Surat, Gujarat', 'Dilip Buildcon'),
-      ('C7', 'Ahmedabad Terminal', 'Ahmedabad, Gujarat', 'Shapoorji Pallonji')
-      ON CONFLICT (code) DO NOTHING
+    // Seed Default Project (Sample)
+    const projectResult = await db.query(`
+      INSERT INTO projects (code, name, description, client_name, location, start_date)
+      VALUES (
+        'SAMPLE',
+        'Sample Construction Project',
+        'A sample construction project for demonstration purposes',
+        'Sample Client',
+        'India',
+        '2024-01-01'
+      )
+      ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+      RETURNING id
     `);
+    const defaultProjectId = projectResult.rows[0].id;
+    logger.info(`Default project seeded with ID: ${defaultProjectId}`);
+
+    // Seed Packages (linked to default project)
+    await db.query(`
+      INSERT INTO packages (project_id, code, name, location, contractor_name) VALUES
+      ($1, 'C1', 'Vadodara Corridor', 'Vadodara, Gujarat', 'L&T Construction'),
+      ($1, 'C2', 'BKC Underground', 'Mumbai, Maharashtra', 'Afcons Infrastructure'),
+      ($1, 'C3', 'Thane Region', 'Thane, Maharashtra', 'Tata Projects'),
+      ($1, 'C4', 'Gujarat Corridor North', 'Anand-Vadodara', 'J Kumar Infra'),
+      ($1, 'C5', 'Gujarat Corridor South', 'Surat Region', 'NCC Limited'),
+      ($1, 'C6', 'Surat Region', 'Surat, Gujarat', 'Dilip Buildcon'),
+      ($1, 'C7', 'Ahmedabad Terminal', 'Ahmedabad, Gujarat', 'Shapoorji Pallonji')
+      ON CONFLICT (project_id, code) DO NOTHING
+    `, [defaultProjectId]);
     logger.info('Packages seeded');
 
     // Seed Admin User
     const passwordHash = await bcrypt.hash('admin123', 12);
     await db.query(`
       INSERT INTO users (email, password_hash, name, role_id, is_active)
-      VALUES ('admin@mahsr.com', $1, 'System Admin', 1, true)
+      VALUES ('admin@protecther.com', $1, 'System Admin', 1, true)
       ON CONFLICT (email) DO NOTHING
     `, [passwordHash]);
 
@@ -45,14 +62,22 @@ async function seed() {
     const demoPassword = await bcrypt.hash('demo123', 12);
     await db.query(`
       INSERT INTO users (email, password_hash, name, role_id, package_id, is_active) VALUES
-      ('pmchead@mahsr.com', $1, 'PMC Head User', 2, NULL, true),
-      ('manager.c2@mahsr.com', $1, 'Package Manager C2', 3, 2, true),
-      ('auditor1@mahsr.com', $1, 'Rajesh Kumar', 4, 2, true),
-      ('auditor2@mahsr.com', $1, 'Priya Sharma', 4, 3, true),
-      ('contractor.c2@mahsr.com', $1, 'Contractor C2', 5, 2, true)
+      ('pmchead@protecther.com', $1, 'PMC Head User', 2, NULL, true),
+      ('manager.c2@protecther.com', $1, 'Package Manager C2', 3, 2, true),
+      ('auditor1@protecther.com', $1, 'Rajesh Kumar', 4, 2, true),
+      ('auditor2@protecther.com', $1, 'Priya Sharma', 4, 3, true),
+      ('contractor.c2@protecther.com', $1, 'Contractor C2', 5, 2, true)
       ON CONFLICT (email) DO NOTHING
     `, [demoPassword]);
     logger.info('Users seeded');
+
+    // Assign all users to the default project
+    await db.query(`
+      INSERT INTO user_project_assignments (user_id, project_id, is_default)
+      SELECT id, $1, true FROM users
+      ON CONFLICT (user_id, project_id) DO NOTHING
+    `, [defaultProjectId]);
+    logger.info('User project assignments seeded');
 
     // Seed Audit Categories
     await db.query(`
@@ -346,14 +371,14 @@ async function seed() {
       if (sec4AResult.rows.length > 0) {
         await db.query(`
           INSERT INTO audit_items (section_id, sr_no, audit_point, standard_reference, evidence_required, priority) VALUES
-          ($1, 1, 'PTW procedure established for hazardous works', 'MAHSR Safety Standards', 'PTW procedure', 'P1'),
-          ($1, 2, 'High-risk activities identified requiring PTW', 'MAHSR Safety Standards', 'Activity list', 'P1'),
+          ($1, 1, 'PTW procedure established for hazardous works', 'Project Safety Standards', 'PTW procedure', 'P1'),
+          ($1, 2, 'High-risk activities identified requiring PTW', 'Project Safety Standards', 'Activity list', 'P1'),
           ($1, 3, 'PTW forms designed with all necessary fields', 'Best Practice', 'PTW formats', 'P2'),
-          ($1, 4, 'Authorized persons list for issuing PTW defined', 'MAHSR Safety Standards', 'Authorization list', 'P1'),
-          ($1, 5, 'PTW validity period defined and adhered', 'MAHSR Safety Standards', 'PTW records', 'P1'),
-          ($1, 6, 'PTW closure process followed', 'MAHSR Safety Standards', 'Closure records', 'P1'),
-          ($1, 7, 'PTW register maintained', 'MAHSR Safety Standards', 'PTW register', 'P2'),
-          ($1, 8, 'Workers trained on PTW system', 'MAHSR Safety Standards', 'Training records', 'P1')
+          ($1, 4, 'Authorized persons list for issuing PTW defined', 'Project Safety Standards', 'Authorization list', 'P1'),
+          ($1, 5, 'PTW validity period defined and adhered', 'Project Safety Standards', 'PTW records', 'P1'),
+          ($1, 6, 'PTW closure process followed', 'Project Safety Standards', 'Closure records', 'P1'),
+          ($1, 7, 'PTW register maintained', 'Project Safety Standards', 'PTW register', 'P2'),
+          ($1, 8, 'Workers trained on PTW system', 'Project Safety Standards', 'Training records', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
         `, [sec4AResult.rows[0].id]);
       }
@@ -414,12 +439,12 @@ async function seed() {
       if (sec5BResult.rows.length > 0) {
         await db.query(`
           INSERT INTO audit_items (section_id, sr_no, audit_point, standard_reference, evidence_required, priority) VALUES
-          ($1, 1, 'Work at height permit issued for works above 2m', 'MAHSR Safety Standards', 'Permit records', 'P1'),
+          ($1, 1, 'Work at height permit issued for works above 2m', 'Project Safety Standards', 'Permit records', 'P1'),
           ($1, 2, 'Fall protection plan prepared', 'OSHA 1926.502', 'Fall protection plan', 'P1'),
           ($1, 3, 'Edge protection provided at all open edges', 'Rule 53, BOCW Rules', 'Physical verification', 'P1'),
           ($1, 4, 'Safety nets installed where required', 'Rule 54, BOCW Rules', 'Physical verification', 'P1'),
           ($1, 5, 'MEWP/Aerial work platform certified', 'IS 16368:2015', 'Certification', 'P1'),
-          ($1, 6, 'Workers trained in work at height', 'MAHSR Safety Standards', 'Training records', 'P1')
+          ($1, 6, 'Workers trained in work at height', 'Project Safety Standards', 'Training records', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
         `, [sec5BResult.rows[0].id]);
       }
@@ -445,11 +470,11 @@ async function seed() {
         await db.query(`
           INSERT INTO audit_items (section_id, sr_no, audit_point, standard_reference, evidence_required, priority) VALUES
           ($1, 1, 'Underground utilities identified before excavation', 'Rule 55, BOCW Rules', 'Utility survey', 'P1'),
-          ($1, 2, 'Excavation permit obtained', 'MAHSR Safety Standards', 'Permit copy', 'P1'),
+          ($1, 2, 'Excavation permit obtained', 'Project Safety Standards', 'Permit copy', 'P1'),
           ($1, 3, 'Soil classification done', 'OSHA 1926.652', 'Soil report', 'P1'),
           ($1, 4, 'Excavation plan approved', 'Rule 56, BOCW Rules', 'Approved plan', 'P1'),
           ($1, 5, 'Competent person assigned for supervision', 'Rule 57, BOCW Rules', 'Assignment record', 'P1'),
-          ($1, 6, 'Emergency rescue plan in place', 'MAHSR Safety Standards', 'Rescue plan', 'P1'),
+          ($1, 6, 'Emergency rescue plan in place', 'Project Safety Standards', 'Rescue plan', 'P1'),
           ($1, 7, 'Barricading done around excavation', 'Rule 58, BOCW Rules', 'Physical verification', 'P1'),
           ($1, 8, 'Warning signs and lights provided', 'Rule 59, BOCW Rules', 'Physical verification', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
@@ -479,12 +504,12 @@ async function seed() {
           ($1, 1, 'Crane third party certified', 'Rule 60, BOCW Rules', 'TPI certificate', 'P1'),
           ($1, 2, 'Crane operator licensed', 'Rule 61, BOCW Rules', 'Operator license', 'P1'),
           ($1, 3, 'Crane load chart available and legible', 'IS 4573:1982', 'Physical verification', 'P1'),
-          ($1, 4, 'Daily inspection by operator', 'MAHSR Safety Standards', 'Checklist records', 'P1'),
+          ($1, 4, 'Daily inspection by operator', 'Project Safety Standards', 'Checklist records', 'P1'),
           ($1, 5, 'Outriggers fully extended during operation', 'IS 4573:1982', 'Physical verification', 'P1'),
-          ($1, 6, 'Anti-collision devices functional', 'MAHSR Safety Standards', 'Inspection records', 'P1'),
+          ($1, 6, 'Anti-collision devices functional', 'Project Safety Standards', 'Inspection records', 'P1'),
           ($1, 7, 'Load moment indicator (LMI) working', 'IS 4573:1982', 'Functional test', 'P1'),
           ($1, 8, 'Trained signalman/rigger available', 'Rule 62, BOCW Rules', 'Training records', 'P1'),
-          ($1, 9, 'Crane logbook maintained', 'MAHSR Safety Standards', 'Logbook', 'P2'),
+          ($1, 9, 'Crane logbook maintained', 'Project Safety Standards', 'Logbook', 'P2'),
           ($1, 10, 'Ground conditions checked before setup', 'IS 4573:1982', 'Ground survey', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
         `, [sec8AResult.rows[0].id]);
@@ -542,9 +567,9 @@ async function seed() {
         await db.query(`
           INSERT INTO audit_items (section_id, sr_no, audit_point, standard_reference, evidence_required, priority) VALUES
           ($1, 1, 'Fire risk assessment conducted', 'NBC 2016', 'Risk assessment', 'P1'),
-          ($1, 2, 'Hot work permit system implemented', 'MAHSR Safety Standards', 'Permit records', 'P1'),
+          ($1, 2, 'Hot work permit system implemented', 'Project Safety Standards', 'Permit records', 'P1'),
           ($1, 3, 'Flammable material storage as per norms', 'PESO Rules', 'Storage records', 'P1'),
-          ($1, 4, 'No smoking policy enforced', 'MAHSR Safety Standards', 'Signage verification', 'P2'),
+          ($1, 4, 'No smoking policy enforced', 'Project Safety Standards', 'Signage verification', 'P2'),
           ($1, 5, 'Housekeeping maintained to prevent fire', 'Best Practice', 'Physical verification', 'P2'),
           ($1, 6, 'Electrical fire prevention measures in place', 'IE Rules 2003', 'Inspection records', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
@@ -562,7 +587,7 @@ async function seed() {
           ($1, 3, 'Fire extinguishers refilled annually', 'IS 2190:2019', 'Refill records', 'P1'),
           ($1, 4, 'Fire hydrant system functional', 'NBC 2016', 'Test records', 'P1'),
           ($1, 5, 'Fire alarm system installed and tested', 'NBC 2016', 'Test records', 'P1'),
-          ($1, 6, 'Fire trained personnel available 24x7', 'MAHSR Safety Standards', 'Training records', 'P1')
+          ($1, 6, 'Fire trained personnel available 24x7', 'Project Safety Standards', 'Training records', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
         `, [sec10BResult.rows[0].id]);
       }
@@ -576,9 +601,9 @@ async function seed() {
           ($1, 1, 'Emergency response plan documented', 'ISO 45001:2018 Clause 8.2', 'ERP document', 'P1'),
           ($1, 2, 'Emergency evacuation routes marked', 'NBC 2016', 'Physical verification', 'P1'),
           ($1, 3, 'Assembly points identified', 'Best Practice', 'Signage verification', 'P1'),
-          ($1, 4, 'Emergency contact numbers displayed', 'MAHSR Safety Standards', 'Physical verification', 'P2'),
+          ($1, 4, 'Emergency contact numbers displayed', 'Project Safety Standards', 'Physical verification', 'P2'),
           ($1, 5, 'Mock drills conducted quarterly', 'ISO 45001:2018 Clause 8.2', 'Drill records', 'P1'),
-          ($1, 6, 'First responders trained in fire fighting', 'MAHSR Safety Standards', 'Training records', 'P1'),
+          ($1, 6, 'First responders trained in fire fighting', 'Project Safety Standards', 'Training records', 'P1'),
           ($1, 7, 'Tie-up with hospital/ambulance', 'Rule 232, BOCW Rules', 'MOU/Agreement', 'P1')
           ON CONFLICT (section_id, sr_no) DO NOTHING
         `, [sec10CResult.rows[0].id]);
@@ -590,8 +615,8 @@ async function seed() {
     logger.info('Seeding sample audits...');
 
     // Get user and package IDs for creating audits
-    const auditorResult = await db.query("SELECT id FROM users WHERE email = 'auditor1@mahsr.com'");
-    const reviewerResult = await db.query("SELECT id FROM users WHERE email = 'manager.c2@mahsr.com'");
+    const auditorResult = await db.query("SELECT id FROM users WHERE email = 'auditor1@protecther.com'");
+    const reviewerResult = await db.query("SELECT id FROM users WHERE email = 'manager.c2@protecther.com'");
     const package2Result = await db.query("SELECT id FROM packages WHERE code = 'C2'");
     const package3Result = await db.query("SELECT id FROM packages WHERE code = 'C3'");
 

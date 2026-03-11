@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import { db } from '../database/connection';
 import { AppError } from '../middleware/errorHandler';
@@ -7,15 +7,39 @@ import { AuthRequest } from '../middleware/auth';
 export class PackageController {
   getAllPackages = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await db.query(
-        'SELECT * FROM packages WHERE status = $1 ORDER BY code',
-        ['Active']
-      );
+      const projectId = req.projectId;
+
+      let query: string;
+      let params: any[];
+
+      if (projectId) {
+        // Filter by current project
+        query = `SELECT * FROM packages WHERE status = $1 AND project_id = $2 ORDER BY code`;
+        params = ['Active', projectId];
+      } else {
+        // No project context - return empty or all based on role
+        if (req.user?.roleName === 'Super Admin') {
+          query = `SELECT * FROM packages WHERE status = $1 ORDER BY code`;
+          params = ['Active'];
+        } else {
+          // Return only packages from user's assigned projects
+          query = `
+            SELECT p.* FROM packages p
+            JOIN user_project_assignments upa ON p.project_id = upa.project_id
+            WHERE p.status = $1 AND upa.user_id = $2
+            ORDER BY p.code
+          `;
+          params = ['Active', req.user!.id];
+        }
+      }
+
+      const result = await db.query(query, params);
 
       res.json({
         success: true,
         data: result.rows.map((pkg) => ({
           id: pkg.id,
+          projectId: pkg.project_id,
           code: pkg.code,
           name: pkg.name,
           location: pkg.location,
@@ -30,7 +54,7 @@ export class PackageController {
     }
   };
 
-  getPackageById = async (req: Request, res: Response, next: NextFunction) => {
+  getPackageById = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
 
@@ -46,6 +70,7 @@ export class PackageController {
         success: true,
         data: {
           id: pkg.id,
+          projectId: pkg.project_id,
           code: pkg.code,
           name: pkg.name,
           location: pkg.location,
@@ -60,7 +85,7 @@ export class PackageController {
     }
   };
 
-  getPackageAudits = async (req: Request, res: Response, next: NextFunction) => {
+  getPackageAudits = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
 
@@ -90,7 +115,7 @@ export class PackageController {
     }
   };
 
-  getPackageKPIs = async (req: Request, res: Response, next: NextFunction) => {
+  getPackageKPIs = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const { periodMonth, periodYear } = req.query;
@@ -139,32 +164,58 @@ export class PackageController {
     }
   };
 
-  createPackage = async (req: Request, res: Response, next: NextFunction) => {
+  createPackage = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ success: false, errors: errors.array() });
       }
 
-      const { code, name, location, description, contractorName } = req.body;
+      const { code, name, location, description, contractorName, projectId } = req.body;
+
+      // Use projectId from body or from request context
+      const targetProjectId = projectId || req.projectId;
+
+      if (!targetProjectId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Project ID is required. Please select a project.',
+        });
+      }
 
       const result = await db.query(
-        `INSERT INTO packages (code, name, location, description, contractor_name)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO packages (project_id, code, name, location, description, contractor_name)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [code, name, location || null, description || null, contractorName || null]
+        [targetProjectId, code, name, location || null, description || null, contractorName || null]
       );
+
+      const pkg = result.rows[0];
 
       res.status(201).json({
         success: true,
-        data: result.rows[0],
+        data: {
+          id: pkg.id,
+          projectId: pkg.project_id,
+          code: pkg.code,
+          name: pkg.name,
+          location: pkg.location,
+          description: pkg.description,
+          contractorName: pkg.contractor_name,
+          status: pkg.status,
+          createdAt: pkg.created_at,
+        },
       });
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      if (error.code === '23505') {
+        next(new AppError('Package code already exists in this project', 400));
+      } else {
+        next(error);
+      }
     }
   };
 
-  updatePackage = async (req: Request, res: Response, next: NextFunction) => {
+  updatePackage = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const { name, location, description, contractorName, status } = req.body;

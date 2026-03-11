@@ -42,6 +42,7 @@ export class KPIController {
   getEntries = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { packageId, indicatorId, periodMonth, periodYear } = req.query;
+      const projectId = req.projectId;
 
       let query = `
         SELECT ke.*, ki.name as indicator_name, ki.type, ki.unit, ki.benchmark_value,
@@ -53,6 +54,12 @@ export class KPIController {
       `;
       const params: any[] = [];
       let paramIndex = 1;
+
+      // Project filter
+      if (projectId) {
+        query += ` AND p.project_id = $${paramIndex++}`;
+        params.push(projectId);
+      }
 
       if (packageId) {
         query += ` AND ke.package_id = $${paramIndex++}`;
@@ -184,6 +191,114 @@ export class KPIController {
       res.json({
         success: true,
         message: 'KPI entry updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Get KPI trends for last N months
+  getTrends = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { months = 12, indicatorId, packageId } = req.query;
+      const projectId = req.projectId;
+      const numMonths = Math.min(parseInt(months as string) || 12, 24);
+
+      let query = `
+        WITH months AS (
+          SELECT
+            date_trunc('month', NOW() - (n || ' months')::interval) as month_date,
+            EXTRACT(MONTH FROM date_trunc('month', NOW() - (n || ' months')::interval))::int as month,
+            EXTRACT(YEAR FROM date_trunc('month', NOW() - (n || ' months')::interval))::int as year
+          FROM generate_series(0, $1 - 1) as n
+        )
+        SELECT
+          m.month_date,
+          m.month,
+          m.year,
+          ki.id as indicator_id,
+          ki.name as indicator_name,
+          ki.type,
+          ki.unit,
+          ki.benchmark_value,
+          AVG(ke.target_value) as avg_target,
+          AVG(ke.actual_value) as avg_actual,
+          SUM(ke.man_hours_worked) as total_man_hours,
+          SUM(ke.incidents_count) as total_incidents
+        FROM months m
+        CROSS JOIN kpi_indicators ki
+        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
+          AND ke.period_month = m.month
+          AND ke.period_year = m.year
+        LEFT JOIN packages p ON ke.package_id = p.id
+        WHERE 1=1
+      `;
+
+      const params: any[] = [numMonths];
+      let paramIndex = 2;
+
+      if (projectId) {
+        query += ` AND (p.project_id = $${paramIndex} OR ke.id IS NULL)`;
+        params.push(projectId);
+        paramIndex++;
+      }
+
+      if (indicatorId) {
+        query += ` AND ki.id = $${paramIndex}`;
+        params.push(indicatorId);
+        paramIndex++;
+      }
+
+      if (packageId) {
+        query += ` AND (ke.package_id = $${paramIndex} OR ke.id IS NULL)`;
+        params.push(packageId);
+        paramIndex++;
+      }
+
+      query += `
+        GROUP BY m.month_date, m.month, m.year, ki.id, ki.name, ki.type, ki.unit, ki.benchmark_value, ki.display_order
+        ORDER BY m.month_date DESC, ki.type, ki.display_order
+      `;
+
+      const result = await db.query(query, params);
+
+      // Group by indicator and format data for charts
+      const indicatorMap = new Map();
+
+      result.rows.forEach((row) => {
+        if (!indicatorMap.has(row.indicator_id)) {
+          indicatorMap.set(row.indicator_id, {
+            id: row.indicator_id,
+            name: row.indicator_name,
+            type: row.type,
+            unit: row.unit,
+            benchmarkValue: row.benchmark_value,
+            data: [],
+          });
+        }
+
+        indicatorMap.get(row.indicator_id).data.push({
+          month: row.month,
+          year: row.year,
+          monthLabel: new Date(row.year, row.month - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+          target: row.avg_target ? parseFloat(row.avg_target) : null,
+          actual: row.avg_actual ? parseFloat(row.avg_actual) : null,
+          manHours: row.total_man_hours ? parseInt(row.total_man_hours) : 0,
+          incidents: row.total_incidents ? parseInt(row.total_incidents) : 0,
+        });
+      });
+
+      // Sort data by date (oldest first for charts)
+      indicatorMap.forEach((indicator) => {
+        indicator.data.sort((a: any, b: any) => {
+          if (a.year !== b.year) return a.year - b.year;
+          return a.month - b.month;
+        });
+      });
+
+      res.json({
+        success: true,
+        data: Array.from(indicatorMap.values()),
       });
     } catch (error) {
       next(error);

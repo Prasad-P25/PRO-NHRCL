@@ -1,3 +1,22 @@
+// Project Types
+export interface Project {
+  id: number;
+  code: string;
+  name: string;
+  description?: string;
+  clientName?: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  status: 'Active' | 'Inactive' | 'Completed' | 'Deleted';
+  settings?: Record<string, any>;
+  isDefault?: boolean;
+  packageCount?: number;
+  userCount?: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // User Types
 export interface User {
   id: number;
@@ -29,6 +48,7 @@ export type RoleName =
 // Package Types
 export interface Package {
   id: number;
+  projectId?: number;
   code: string;
   name: string;
   location?: string;

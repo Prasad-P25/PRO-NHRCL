@@ -9,6 +9,8 @@ router.use(authenticate);
 
 router.get('/overview', dashboardController.getOverview);
 
+router.get('/project-comparison', dashboardController.getProjectComparison);
+
 router.get('/package/:id', dashboardController.getPackageDashboard);
 
 router.get('/kpi-summary', dashboardController.getKPISummary);

@@ -22,6 +22,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuthStore } from '@/store/authStore';
 import { useAppStore } from '@/store/appStore';
 import notificationService, { type Notification } from '@/services/notification.service';
+import { ProjectSelector } from '@/components/ProjectSelector';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 // Helper to get notification icon based on type
 function getNotificationIcon(type: string) {
@@ -109,14 +111,22 @@ export function Header() {
 
         <Link to="/" className="ml-4 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
-            M
+            P
           </div>
           <span className="hidden font-semibold md:inline-block">
-            MAHSR Safety Audit Portal
+            PROTECTHER Audit Panel
           </span>
         </Link>
 
-        <div className="ml-auto flex items-center gap-4">
+        {/* Project Selector */}
+        <div className="ml-4">
+          <ProjectSelector />
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Theme Toggle */}
+          <ThemeToggle />
+
           {/* Notifications */}
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>

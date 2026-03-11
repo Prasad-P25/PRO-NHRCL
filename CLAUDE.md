@@ -1,242 +1,174 @@
-# NHSRCL Safety Audit Management System - Project Context
+# CLAUDE.md
 
-## Overview
-This is a full-stack web application for managing safety audits for NHSRCL (National High Speed Rail Corporation Limited) / MAHSR (Mumbai-Ahmedabad High Speed Rail) project. The system enables safety compliance tracking, audit management, KPI monitoring, and CAPA (Corrective and Preventive Action) management.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+PROTECTHER Audit Panel - A full-stack web application for managing construction safety audits. PROTECTHER is a safety auditing organization that conducts audits for multiple client projects. This platform tracks audit compliance, KPIs (LTIFR, TRIFR), CAPA management, and safety maturity assessments across project packages.
 
 ## Tech Stack
 
-### Backend
-- **Runtime**: Node.js with TypeScript
-- **Framework**: Express.js
-- **Database**: PostgreSQL
-- **Authentication**: JWT (JSON Web Tokens)
-- **Password Hashing**: bcryptjs
-- **File Uploads**: Multer
+- **Backend**: Node.js + Express + TypeScript, PostgreSQL, JWT auth, Winston logging
+- **Frontend**: React 18 + TypeScript, Vite, Tailwind CSS, Zustand (state), React Query, Radix UI
 
-### Frontend
-- **Framework**: React 18 with TypeScript
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS
-- **State Management**: Zustand
-- **UI Components**: Custom components with Radix UI primitives
-- **HTTP Client**: Axios
+## Commands
 
-## Project Structure
-
-```
-nhsrcl/
-├── backend/
-│   ├── src/
-│   │   ├── controllers/      # Route handlers
-│   │   ├── database/         # DB connection, migrations, seeds
-│   │   ├── middleware/       # Auth, error handling, logging
-│   │   ├── routes/           # API route definitions
-│   │   ├── utils/            # Logger and utilities
-│   │   └── index.ts          # Server entry point
-│   ├── uploads/              # File upload directory
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/       # Reusable UI components
-│   │   │   ├── layout/       # Header, Sidebar, MainLayout
-│   │   │   └── ui/           # Button, Card, Input, etc.
-│   │   ├── pages/            # Page components
-│   │   ├── services/         # API service functions
-│   │   ├── store/            # Zustand state stores
-│   │   ├── types/            # TypeScript type definitions
-│   │   ├── lib/              # Utility functions
-│   │   ├── App.tsx           # Main app with routing
-│   │   └── main.tsx          # Entry point
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tailwind.config.js
-│
-├── package.json              # Root package.json (workspace)
-└── CLAUDE.md                 # This file
-```
-
-## Core Features
-
-### 1. User Management & Authentication
-- Role-based access control (Super Admin, PMC Head, Package Manager, Auditor, Contractor, Viewer)
-- JWT-based authentication
-- User profiles with package assignments
-
-### 2. Audit Management
-- Create, edit, and conduct safety audits
-- 18 audit categories covering statutory compliance, safety systems, and technical areas
-- Audit workflow: Draft → In Progress → Completed → Pending Review → Approved
-- Audit responses: Compliant (C), Non-Compliant (NC), Not Applicable (NA)
-
-### 3. CAPA Management
-- Automatic CAPA generation for non-compliant items
-- Track corrective and preventive actions
-- CAPA workflow: Open → In Progress → Closed
-
-### 4. KPI Tracking
-- Leading indicators (proactive metrics)
-- Lagging indicators (incident rates like LTIFR, TRIFR)
-- Monthly data entry per package
-- Dashboard visualizations
-
-### 5. Reporting
-- Audit reports with compliance percentages
-- KPI trend analysis
-- Package-wise comparisons
-- Export to Excel/PDF
-
-### 6. Maturity Assessment
-- Safety maturity level evaluation
-- Scoring across multiple dimensions
-
-## Database Schema (Key Tables)
-
-- `users` - User accounts with roles
-- `roles` - Role definitions with permissions (JSON)
-- `packages` - Construction packages (C1-C7)
-- `audit_categories` - 18 safety audit categories
-- `audit_sections` - Sections within categories
-- `audit_items` - Individual audit checkpoints
-- `audits` - Audit records
-- `audit_responses` - Responses to audit items
-- `capa` - Corrective/Preventive actions
-- `kpi_indicators` - KPI definitions
-- `kpi_entries` - Monthly KPI data entries
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/logout` - User logout
-- `GET /api/auth/me` - Get current user
-
-### Audits
-- `GET /api/audits` - List audits
-- `POST /api/audits` - Create audit
-- `GET /api/audits/:id` - Get audit details
-- `PUT /api/audits/:id` - Update audit
-- `POST /api/audits/:id/responses` - Save audit responses
-- `PUT /api/audits/:id/submit` - Submit for review
-- `PUT /api/audits/:id/approve` - Approve audit
-
-### CAPA
-- `GET /api/capa` - List CAPAs
-- `POST /api/capa` - Create CAPA
-- `PUT /api/capa/:id` - Update CAPA
-
-### KPI
-- `GET /api/kpi/indicators` - List KPI indicators
-- `GET /api/kpi/entries` - Get KPI entries
-- `POST /api/kpi/entries` - Save KPI entry
-
-### Dashboard
-- `GET /api/dashboard/summary` - Dashboard statistics
-- `GET /api/dashboard/trends` - Trend data
-
-## Development Setup
-
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+
-- npm or yarn
-
-### Backend Setup
+### Development
 ```bash
-cd backend
-cp .env.example .env
-# Edit .env with your database credentials
-npm install
-npm run migrate    # Run database migrations
-npm run seed       # Seed sample data
-npm run dev        # Start development server (port 5000)
+npm run dev              # Start both frontend (port 3000) and backend (port 5000)
+npm run dev:frontend     # Frontend only
+npm run dev:backend      # Backend only
 ```
 
-### Frontend Setup
+### Database
 ```bash
-cd frontend
-npm install
-npm run dev        # Start Vite dev server (port 3000)
+npm run db:migrate       # Run migrations (backend workspace)
+npm run db:seed          # Seed sample data
+npm run cleanup --workspace=backend   # Clean up duplicate records
+npm run backup --workspace=backend    # Backup database
 ```
 
-### Test Credentials (after seeding)
-| Email | Password | Role |
-|-------|----------|------|
-| admin@mahsr.com | admin123 | Super Admin |
-| pmchead@mahsr.com | demo123 | PMC Head |
-| manager.c2@mahsr.com | demo123 | Package Manager |
-| auditor1@mahsr.com | demo123 | Auditor |
+Migrations are in `backend/src/database/migrations/`. Schema is defined in `migrate.ts`.
 
-## Environment Variables
+### Build & Lint
+```bash
+npm run build            # Build both workspaces
+npm run lint --workspace=frontend    # Lint frontend
+npm run lint --workspace=backend     # Lint backend
+```
 
-### Backend (.env)
+### Testing
+```bash
+# Frontend (Vitest)
+npm run test --workspace=frontend           # Run all tests
+npm run test:ui --workspace=frontend        # Interactive UI
+npm run test:coverage --workspace=frontend  # Coverage report
+npx vitest run src/path/to/file.test.ts --workspace=frontend  # Single file
+
+# Backend (Jest)
+npm run test --workspace=backend            # Run all tests
+npm run test:watch --workspace=backend      # Watch mode
+npm run test:coverage --workspace=backend   # Coverage report
+npx jest src/__tests__/file.test.ts         # Single file (run from backend/)
 ```
-PORT=5000
-NODE_ENV=development
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=mahsr_safety
-DB_USER=postgres
-DB_PASSWORD=your_password
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=24h
-CORS_ORIGIN=http://localhost:3000
-```
+
+Frontend tests in `frontend/src/**/*.{test,spec}.{ts,tsx}`, backend tests in `backend/src/__tests__/`.
+
+## Architecture
+
+### Monorepo Structure
+- Root `package.json` uses npm workspaces (`frontend/`, `backend/`)
+- `concurrently` runs both servers in dev mode
+
+### Backend (`backend/src/`)
+- `controllers/` - Business logic for each domain (audit, capa, kpi, etc.)
+- `routes/` - Express route definitions, all mounted under `/api/v1/`
+- `middleware/auth.ts` - JWT verification, role-based access
+- `middleware/rateLimiter.ts` - API rate limiting
+- `database/connection.ts` - PostgreSQL pool with `pg`
+- `database/migrate.ts` - Schema migrations
+- `database/seed.ts` - Sample data seeder
+- `jobs/capaReminder.ts` - Scheduled CAPA overdue/due-soon notifications
+- `services/email.service.ts` - Email via nodemailer (SMTP config in .env)
+- `services/` - Business services (email, report generation with docx/xlsx)
+
+### Frontend (`frontend/src/`)
+- `services/api.ts` - Axios instance with auth interceptor (auto-attaches JWT and `X-Project-Id` header, handles 401)
+- `store/authStore.ts` - Zustand store for auth state (persisted to localStorage as `auth-storage`)
+- `store/appStore.ts` - Zustand store for app state (current project selection)
+- `pages/` - Full page components (Dashboard, AuditExecution, CAPAList, etc.)
+- `components/ui/` - Reusable Radix-based UI components
+- `lib/export.ts` - Excel/PDF export utilities using xlsx and jspdf
+- `hooks/` - Custom React hooks (useDebounce, useLocalStorage, etc.)
+
+### API Response Format
+All endpoints return: `{ success: boolean, data?: any, message?: string }`
+
+### API Base Path
+All routes use `/api/v1/` prefix (not `/api/`). Health check at `/health`.
+
+Key route modules: auth, users, packages, audit-categories, audits, capa, kpi, dashboard, reports, maturity, roles, notifications, scheduled-reports
+
+### Frontend Routes
+Protected routes wrapped in `MainLayout`. Key paths:
+- `/audits`, `/audits/new`, `/audits/:id` - Audit management
+- `/capa`, `/capa/open`, `/capa/overdue` - CAPA tracking
+- `/kpi`, `/kpi/entry` - KPI data entry
+- `/maturity`, `/maturity/:id` - Safety maturity assessments
+- `/projects` - Multi-project management
+- `/settings/users`, `/settings/roles` - Admin settings
 
 ## Key Business Logic
 
-### Audit Compliance Calculation
+### Audit Workflow
+Draft -> In Progress -> Completed -> Pending Review -> Approved
+
+### Compliance Calculation
 ```
 Compliance % = (Compliant Items / (Total Items - NA Items)) * 100
 ```
 
 ### KPI Formulas
-- **LTIFR** = (Lost Time Injuries × 1,000,000) / Man-hours worked
-- **TRIFR** = (Total Recordable Injuries × 1,000,000) / Man-hours worked
-- **Severity Rate** = (Lost Days × 1,000,000) / Man-hours worked
+- LTIFR = (Lost Time Injuries x 1,000,000) / Man-hours
+- TRIFR = (Total Recordable Injuries x 1,000,000) / Man-hours
 
-## Audit Categories (18 total)
-1. Statutory & Legal Compliance
-2. SHE Management System
-3. HIRA & Risk Control
-4. Work Permits & LOTO
-5. Scaffolding & Work at Height
-6. Excavation & Earthwork
-7. Tunneling Safety
-8. Lifting & Cranes
-9. Electrical Safety
-10. Fire & Emergency
-11. PPE & Worker Welfare
-12. Training & Competency
-13. Working Near IR Track
-14. Formwork & Temp Structures
-15. Bridge & Viaduct Works
-16. Plant & Machinery
-17. Material Handling
-18. Incident Management
+## User Roles (hierarchical permissions)
+Super Admin > PMC Head > Package Manager > Auditor > Contractor > Viewer
 
-## Common Tasks
+## Test Credentials (after seeding)
+- admin@protecther.in / admin123 (Super Admin)
+- pmchead@protecther.com / demo123 (PMC Head)
+- manager.c2@protecther.com / demo123 (Package Manager)
+- auditor1@protecther.com / demo123 (Auditor)
 
-### Adding a New Audit Category
-1. Add to `seed.ts` in audit_categories insert
-2. Create sections and items for the category
-3. Re-run seed or create migration
+## Environment Setup
 
-### Adding a New KPI Indicator
-1. Add to `kpi_indicators` table via seed or migration
-2. Update frontend KPI entry form if needed
+Backend requires `backend/.env` (copy from `.env.example`):
+- DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+- JWT_SECRET, JWT_EXPIRES_IN
+- CORS_ORIGIN (comma-separated for multiple origins)
+- EMAIL_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (for CAPA notifications)
 
-### Adding a New User Role
-1. Add role to `roles` table with permissions JSON
-2. Update middleware auth checks if needed
-3. Update frontend route guards
+Frontend uses `VITE_API_URL` env var (defaults to `/api/v1`).
 
-## Notes for AI Assistants
+## Deployment
 
-- This is a safety-critical application; data integrity is important
-- Follow existing patterns for new features
-- Use TypeScript types consistently
-- API responses follow `{ success: boolean, data?: any, message?: string }` format
-- All protected routes require JWT token in Authorization header
-- File uploads go to `backend/uploads/` directory
+### Production URLs
+- **Frontend**: https://audit.protecther.in
+- **API**: https://api-audit.protecther.in
+
+### Infrastructure
+- Hosted on Windows machine with Cloudflare Tunnel
+- Tunnel config: `C:\Users\IT\.cloudflared\config.yml`
+- Tunnel name: `protecther-audit`
+
+### Startup/Shutdown Scripts
+```bash
+start-protecther.bat          # Start backend, frontend, and tunnel
+stop-protecther.bat           # Stop all services
+```
+
+### Database Backup
+```bash
+backup-database.bat           # Manual backup to backups/ folder
+setup-backup-scheduler.bat    # Setup daily backup at 2:00 AM (run as admin)
+restore-database.bat          # Restore from backup
+```
+- Backups stored in `C:\PROJECTS\PRO-NHRCL\backups\`
+- Auto-cleanup: backups older than 7 days are deleted
+
+### Auto-Start on Boot
+Run `create-startup-shortcut.vbs` to add startup shortcut to Windows Startup folder.
+
+### Adding New Subdomains
+```bash
+cloudflared tunnel route dns protecther-audit <subdomain>.protecther.in
+```
+
+## Conventions
+
+- Protected routes require JWT in `Authorization: Bearer <token>` header
+- Multi-project support: Frontend sends `X-Project-Id` header with requests
+- File uploads stored in `backend/uploads/`
+- Audit categories are seeded (18 categories covering statutory, technical, and safety areas)
+- Path aliases: Frontend uses `@/*` for `src/*`, Backend uses `@/*` for `src/*`

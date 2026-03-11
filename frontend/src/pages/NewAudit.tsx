@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,11 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
 import { auditService } from '@/services/audit.service';
 import type { AuditType, CreateAuditForm } from '@/types';
 
 export function NewAuditPage() {
   const navigate = useNavigate();
+  const currentProject = useAppStore((state) => state.currentProject);
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<CreateAuditForm>({
     packageId: 0,
@@ -29,7 +32,7 @@ export function NewAuditPage() {
   });
 
   const { data: packages = [], isLoading: packagesLoading, isError: packagesError, refetch: refetchPackages } = useQuery({
-    queryKey: ['packages'],
+    queryKey: ['packages', currentProject?.id],
     queryFn: async () => {
       const response = await auditService.getPackages();
       return response.data;
@@ -95,8 +98,22 @@ export function NewAuditPage() {
     createAuditMutation.mutate(submitData);
   };
 
-  const canProceedStep1 = formData.packageId > 0 && formData.scheduledDate;
+  // Only require package selection to proceed - date and contractor rep are optional
+  const canProceedStep1 = formData.packageId > 0;
   const canProceedStep2 = formData.auditType === 'Full' || formData.categoryIds.length > 0;
+
+  // For Full audits, go directly to Review (skip category selection)
+  const handleNextFromStep1 = () => {
+    if (formData.auditType === 'Full') {
+      setStep(3); // Skip to Review
+    } else {
+      setStep(2); // Go to category selection
+    }
+  };
+
+  // Calculate total steps based on audit type
+  const totalSteps = formData.auditType === 'Full' ? 2 : 3;
+  const displayStep = formData.auditType === 'Full' && step === 3 ? 2 : step;
 
   if (isLoading) {
     return (
@@ -134,6 +151,7 @@ export function NewAuditPage() {
   }
 
   return (
+    <ProjectGuard>
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/audits')}>
@@ -141,28 +159,31 @@ export function NewAuditPage() {
         </Button>
         <div>
           <h1 className="text-3xl font-bold">New Audit</h1>
-          <p className="text-muted-foreground">Step {step} of 3</p>
+          <p className="text-muted-foreground flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {currentProject?.name || 'Select a project'} | Step {displayStep} of {totalSteps}
+          </p>
         </div>
       </div>
 
-      {/* Progress indicator */}
+      {/* Progress indicator - simplified for Full audits */}
       <div className="flex items-center gap-2">
-        {[1, 2, 3].map((s) => (
+        {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
           <div key={s} className="flex items-center">
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                s === step
+                s === displayStep
                   ? 'bg-primary text-primary-foreground'
-                  : s < step
+                  : s < displayStep
                   ? 'bg-compliant text-white'
                   : 'bg-muted text-muted-foreground'
               }`}
             >
-              {s < step ? <Check className="h-4 w-4" /> : s}
+              {s < displayStep ? <Check className="h-4 w-4" /> : s}
             </div>
-            {s < 3 && (
+            {s < totalSteps && (
               <div
-                className={`h-1 w-16 ${s < step ? 'bg-compliant' : 'bg-muted'}`}
+                className={`h-1 w-16 ${s < displayStep ? 'bg-compliant' : 'bg-muted'}`}
               />
             )}
           </div>
@@ -204,7 +225,7 @@ export function NewAuditPage() {
               <Label>Audit Type *</Label>
               <div className="space-y-2">
                 {[
-                  { value: 'Full', label: 'Full Audit', desc: 'All 18 categories (~660 items)' },
+                  { value: 'Full', label: 'Full Audit', desc: `All ${categoriesArray.length} categories (~${categoriesArray.reduce((sum, cat) => sum + (cat.itemCount || 0), 0)} items) - Skip category selection` },
                   { value: 'Partial', label: 'Partial Audit', desc: 'Select specific categories' },
                   { value: 'Focused', label: 'Focused Audit', desc: 'Single category deep-dive' },
                 ].map((type) => (
@@ -240,7 +261,7 @@ export function NewAuditPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="date">Scheduled Date *</Label>
+                <Label htmlFor="date">Scheduled Date</Label>
                 <Input
                   id="date"
                   type="date"
@@ -249,17 +270,19 @@ export function NewAuditPage() {
                     setFormData((prev) => ({ ...prev, scheduledDate: e.target.value }))
                   }
                 />
+                <p className="text-xs text-muted-foreground">Optional - defaults to today</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contractor">Contractor Representative</Label>
                 <Input
                   id="contractor"
-                  placeholder="Enter name"
+                  placeholder="Enter name (optional)"
                   value={formData.contractorRep}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, contractorRep: e.target.value }))
                   }
                 />
+                <p className="text-xs text-muted-foreground">Can be added later</p>
               </div>
             </div>
 
@@ -267,8 +290,8 @@ export function NewAuditPage() {
               <Button variant="outline" onClick={() => navigate('/audits')}>
                 Cancel
               </Button>
-              <Button onClick={() => setStep(2)} disabled={!canProceedStep1}>
-                Next: Select Categories
+              <Button onClick={handleNextFromStep1} disabled={!canProceedStep1}>
+                {formData.auditType === 'Full' ? 'Next: Review' : 'Next: Select Categories'}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -276,7 +299,7 @@ export function NewAuditPage() {
         </Card>
       )}
 
-      {/* Step 2: Category Selection */}
+      {/* Step 2: Category Selection (only for Partial/Focused) */}
       {step === 2 && (
         <Card>
           <CardHeader>
@@ -295,34 +318,28 @@ export function NewAuditPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {formData.auditType !== 'Full' && (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleSelectAll}>
-                  Select All
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleDeselectAll}>
-                  Deselect All
-                </Button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleSelectAll}>
+                Select All
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDeselectAll}>
+                Deselect All
+              </Button>
+            </div>
 
             <div className="grid gap-2">
               {categoriesArray.map((category) => (
                 <label
                   key={category.id}
-                  className={`flex items-center justify-between rounded-lg border p-4 transition-colors ${
-                    formData.auditType === 'Full' || formData.categoryIds.includes(category.id)
+                  className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
+                    formData.categoryIds.includes(category.id)
                       ? 'border-primary bg-primary/5'
                       : 'hover:bg-muted'
-                  } ${formData.auditType === 'Full' ? 'cursor-default' : 'cursor-pointer'}`}
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <Checkbox
-                      checked={
-                        formData.auditType === 'Full' ||
-                        formData.categoryIds.includes(category.id)
-                      }
-                      disabled={formData.auditType === 'Full'}
+                      checked={formData.categoryIds.includes(category.id)}
                       onCheckedChange={() => handleCategoryToggle(category.id)}
                     />
                     <span>
@@ -377,15 +394,17 @@ export function NewAuditPage() {
                 </div>
                 <div>
                   <div className="text-sm text-muted-foreground">Scheduled Date</div>
-                  <div className="font-medium">{formData.scheduledDate}</div>
+                  <div className="font-medium">{formData.scheduledDate || 'Today'}</div>
                 </div>
                 <div>
                   <div className="text-sm text-muted-foreground">Contractor Rep</div>
-                  <div className="font-medium">{formData.contractorRep || '-'}</div>
+                  <div className="font-medium">{formData.contractorRep || 'Not specified'}</div>
                 </div>
               </div>
               <div>
-                <div className="text-sm text-muted-foreground mb-2">Categories</div>
+                <div className="text-sm text-muted-foreground mb-2">
+                  Categories ({formData.auditType === 'Full' ? categoriesArray.length : formData.categoryIds.length})
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {formData.auditType === 'Full'
                     ? categoriesArray.map((cat) => (
@@ -415,7 +434,7 @@ export function NewAuditPage() {
             </div>
 
             <div className="flex justify-between gap-2">
-              <Button variant="outline" onClick={() => setStep(2)}>
+              <Button variant="outline" onClick={() => setStep(formData.auditType === 'Full' ? 1 : 2)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
@@ -435,5 +454,6 @@ export function NewAuditPage() {
         </Card>
       )}
     </div>
+    </ProjectGuard>
   );
 }

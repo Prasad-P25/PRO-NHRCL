@@ -8,10 +8,12 @@ import {
   Settings,
   ChevronDown,
   Gauge,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { useAppStore } from '@/store/appStore';
+import { Badge } from '@/components/ui/badge';
 import { useState } from 'react';
 
 interface NavItem {
@@ -42,6 +44,7 @@ const navItems: NavItem[] = [
     title: 'KPI',
     icon: TrendingUp,
     children: [
+      { title: 'Dashboard', href: '/kpi/dashboard' },
       { title: 'Leading Indicators', href: '/kpi/leading' },
       { title: 'Lagging Indicators', href: '/kpi/lagging' },
       { title: 'Enter KPIs', href: '/kpi/entry' },
@@ -51,6 +54,7 @@ const navItems: NavItem[] = [
     title: 'CAPA',
     icon: AlertTriangle,
     children: [
+      { title: 'Analytics', href: '/capa/analytics' },
       { title: 'All CAPAs', href: '/capa' },
       { title: 'Open CAPA', href: '/capa/open' },
       { title: 'My CAPA', href: '/capa/my' },
@@ -71,12 +75,20 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    title: 'Projects',
+    icon: Building2,
+    roles: ['Super Admin'],
+    children: [
+      { title: 'Comparison Dashboard', href: '/projects/dashboard' },
+      { title: 'Manage Projects', href: '/projects' },
+    ],
+  },
+  {
     title: 'Settings',
     icon: Settings,
     roles: ['Super Admin'],
     children: [
       { title: 'Users', href: '/settings/users' },
-      { title: 'Packages', href: '/settings/packages' },
       { title: 'Roles', href: '/settings/roles' },
       { title: 'Audit Checklist', href: '/settings/checklist' },
     ],
@@ -84,9 +96,10 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { sidebarOpen } = useAppStore();
+  const { sidebarOpen, availableProjects } = useAppStore();
   const { user } = useAuthStore();
   const [expandedItems, setExpandedItems] = useState<string[]>(['Audits']);
+  const projectCount = availableProjects.length;
 
   const toggleExpanded = (title: string) => {
     setExpandedItems((prev) =>
@@ -122,6 +135,11 @@ export function Sidebar() {
                     <span className="flex items-center gap-3">
                       <item.icon className="h-4 w-4" />
                       {item.title}
+                      {item.title === 'Projects' && projectCount > 0 && (
+                        <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 text-xs">
+                          {projectCount}
+                        </Badge>
+                      )}
                     </span>
                     <ChevronDown
                       className={cn(
@@ -155,13 +173,20 @@ export function Sidebar() {
                   to={item.href!}
                   className={({ isActive }) =>
                     cn(
-                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
+                      'flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
                       isActive && 'bg-accent text-accent-foreground'
                     )
                   }
                 >
-                  <item.icon className="h-4 w-4" />
-                  {item.title}
+                  <span className="flex items-center gap-3">
+                    <item.icon className="h-4 w-4" />
+                    {item.title}
+                  </span>
+                  {item.title === 'Projects' && projectCount > 0 && (
+                    <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 text-xs">
+                      {projectCount}
+                    </Badge>
+                  )}
                 </NavLink>
               )}
             </li>

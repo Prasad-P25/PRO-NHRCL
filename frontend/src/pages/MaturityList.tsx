@@ -8,6 +8,7 @@ import {
   Trash2,
   ClipboardList,
   AlertCircle,
+  Building2,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +40,8 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 
+import { useAppStore } from '@/store/appStore';
+import { ProjectGuard } from '@/components/ProjectGuard';
 import maturityService from '@/services/maturity.service';
 import api from '@/services/api';
 import type { Package } from '@/types';
@@ -46,6 +49,7 @@ import type { Package } from '@/types';
 export function MaturityListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentProject = useAppStore((state) => state.currentProject);
 
   const [selectedPackageId, setSelectedPackageId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -56,7 +60,7 @@ export function MaturityListPage() {
 
   // Fetch packages
   const { data: packagesData } = useQuery({
-    queryKey: ['packages'],
+    queryKey: ['packages', currentProject?.id],
     queryFn: async () => {
       const response = await api.get('/packages');
       return response.data.data as Package[];
@@ -65,7 +69,7 @@ export function MaturityListPage() {
 
   // Fetch assessments
   const { data: assessmentsData, isLoading } = useQuery({
-    queryKey: ['maturity-assessments', selectedPackageId, selectedStatus],
+    queryKey: ['maturity-assessments', selectedPackageId, selectedStatus, currentProject?.id],
     queryFn: () =>
       maturityService.getAll({
         packageId: selectedPackageId !== 'all' ? parseInt(selectedPackageId) : undefined,
@@ -146,13 +150,15 @@ export function MaturityListPage() {
     : null;
 
   return (
+    <ProjectGuard>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Safety Maturity Assessment</h1>
-          <p className="text-muted-foreground">
-            Evaluate and track safety management maturity levels
+          <p className="text-muted-foreground flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {currentProject?.name || 'Select a project'}
           </p>
         </div>
         <Button onClick={() => setShowNewDialog(true)}>
@@ -405,6 +411,7 @@ export function MaturityListPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </ProjectGuard>
   );
 }
 

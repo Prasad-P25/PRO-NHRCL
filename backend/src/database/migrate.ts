@@ -22,6 +22,8 @@ DROP TABLE IF EXISTS audit_categories CASCADE;
 DROP TABLE IF EXISTS contractors CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS packages CASCADE;
+DROP TABLE IF EXISTS user_project_assignments CASCADE;
+DROP TABLE IF EXISTS projects CASCADE;
 DROP TABLE IF EXISTS roles CASCADE;
 
 -- Roles
@@ -32,16 +34,35 @@ CREATE TABLE roles (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Packages
+-- Projects
+CREATE TABLE projects (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    client_name VARCHAR(255),
+    location VARCHAR(255),
+    start_date DATE,
+    end_date DATE,
+    status VARCHAR(20) DEFAULT 'Active',
+    settings JSONB DEFAULT '{}',
+    created_by INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Packages (sites within a project)
 CREATE TABLE packages (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(10) NOT NULL UNIQUE,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    code VARCHAR(10) NOT NULL,
     name VARCHAR(100) NOT NULL,
     location VARCHAR(255),
     description TEXT,
     contractor_name VARCHAR(255),
     status VARCHAR(20) DEFAULT 'Active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, code)
 );
 
 -- Users
@@ -57,6 +78,16 @@ CREATE TABLE users (
     last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User-Project assignments (many-to-many)
+CREATE TABLE user_project_assignments (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    is_default BOOLEAN DEFAULT false,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, project_id)
 );
 
 -- Audit Categories
@@ -153,6 +184,34 @@ CREATE TABLE audit_evidences (
     uploaded_by INTEGER REFERENCES users(id),
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Audit Comments
+CREATE TABLE audit_comments (
+    id SERIAL PRIMARY KEY,
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    comment TEXT NOT NULL,
+    comment_type VARCHAR(20) DEFAULT 'general',
+    is_internal BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Audit Attachments (audit-level, separate from response evidences)
+CREATE TABLE audit_attachments (
+    id SERIAL PRIMARY KEY,
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_type VARCHAR(50),
+    file_size INTEGER,
+    description TEXT,
+    uploaded_by INTEGER REFERENCES users(id),
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_comments_audit_id ON audit_comments(audit_id);
+CREATE INDEX idx_audit_attachments_audit_id ON audit_attachments(audit_id);
 
 -- CAPA
 CREATE TABLE capa (
@@ -295,6 +354,10 @@ CREATE TABLE generated_reports (
 );
 
 -- Indexes for performance
+CREATE INDEX idx_projects_status ON projects(status);
+CREATE INDEX idx_packages_project_id ON packages(project_id);
+CREATE INDEX idx_user_project_user ON user_project_assignments(user_id);
+CREATE INDEX idx_user_project_project ON user_project_assignments(project_id);
 CREATE INDEX idx_audits_package_id ON audits(package_id);
 CREATE INDEX idx_audits_status ON audits(status);
 CREATE INDEX idx_audits_auditor_id ON audits(auditor_id);

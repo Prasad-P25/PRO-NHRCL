@@ -9,7 +9,6 @@ import {
   CheckCircle,
   Clock,
   Shield,
-  Loader2,
   RefreshCw,
   ClipboardCheck,
   FileText,
@@ -17,7 +16,13 @@ import {
   BarChart3,
   PieChart as PieChartIcon,
   ArrowRight,
+  Building2,
+  Package,
+  Users,
+  MapPin,
 } from 'lucide-react';
+import { useAppStore } from '@/store/appStore';
+import { DashboardSkeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -63,21 +68,23 @@ const PACKAGE_COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const currentProject = useAppStore((state) => state.currentProject);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
   const [showPackageDetail, setShowPackageDetail] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['dashboard'],
+    queryKey: ['dashboard', currentProject?.id],
     queryFn: async () => {
       const response = await dashboardService.getOverview();
       return response.data;
     },
     refetchInterval: 60000, // Refresh every minute
+    enabled: !!currentProject,
   });
 
   // Fetch KPI summary for gauges
   const { data: kpiData } = useQuery({
-    queryKey: ['kpiSummary'],
+    queryKey: ['kpiSummary', currentProject?.id],
     queryFn: async () => {
       const response = await kpiService.getSummary();
       return {
@@ -86,20 +93,14 @@ export function DashboardPage() {
       };
     },
     refetchInterval: 60000,
+    enabled: !!currentProject,
   });
 
   const kpiSummary = kpiData?.summary || [];
   const overallKPI: OverallKPI | null = kpiData?.overallKPI || null;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (isError) {
@@ -123,6 +124,24 @@ export function DashboardPage() {
     );
   }
 
+  if (!currentProject) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Select a Project
+            </CardTitle>
+            <CardDescription>
+              Please select a project from the dropdown in the header to view the dashboard.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -130,7 +149,7 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle>No data available</CardTitle>
             <CardDescription>
-              Run the database seed to populate initial data.
+              No audit data found for {currentProject.name}. Create your first audit to see dashboard metrics.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -163,16 +182,88 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Project Context Banner */}
+      {currentProject && (
+        <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-background border-primary/20">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Building2 className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-semibold">{currentProject.name}</h2>
+                    <Badge variant="outline" className="text-xs">{currentProject.code}</Badge>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                    {currentProject.location && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {currentProject.location}
+                      </span>
+                    )}
+                    {currentProject.packageCount !== undefined && (
+                      <span className="flex items-center gap-1">
+                        <Package className="h-3 w-3" />
+                        {currentProject.packageCount} packages
+                      </span>
+                    )}
+                    {currentProject.userCount !== undefined && (
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        {currentProject.userCount} users
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Overdue CAPA Alert Banner */}
+      {stats.capaOverdue > 0 && (
+        <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                  <AlertTriangle className="h-6 w-6 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-amber-800 dark:text-amber-200">
+                    {stats.capaOverdue} Overdue CAPA{stats.capaOverdue > 1 ? 's' : ''} Require Attention
+                  </h3>
+                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                    These corrective actions have passed their due date and need immediate action.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                className="border-amber-500 text-amber-700 hover:bg-amber-100"
+                onClick={() => navigate('/capa/overdue')}
+              >
+                View Overdue CAPAs
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">Safety performance overview</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
       </div>
 
       {/* Stats Cards */}

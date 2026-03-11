@@ -12,6 +12,8 @@ router.get('/indicators', kpiController.getIndicators);
 
 router.get('/summary', kpiController.getSummary);
 
+router.get('/trends', kpiController.getTrends);
+
 router.get('/entries', kpiController.getEntries);
 
 router.post(

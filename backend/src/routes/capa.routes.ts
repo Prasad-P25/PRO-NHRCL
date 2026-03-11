@@ -10,6 +10,8 @@ router.use(authenticate);
 
 router.get('/', capaController.getAllCAPA);
 
+router.get('/analytics', capaController.getAnalytics);
+
 router.post(
   '/',
   [
