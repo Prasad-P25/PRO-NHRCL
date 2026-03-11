@@ -97,6 +97,23 @@ After logout, the session token stays valid until it expires (24 hours).
 
 ---
 
+## BUG-006: Trust Proxy Not Configured (NEW - Found 2026-03-11)
+
+### What is the problem?
+Express `trust proxy` setting is false, causing rate limiter warnings when behind Cloudflare.
+
+### Error in logs:
+```
+ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false
+```
+
+### Status: Open - Should fix for production
+
+### Fix needed:
+Add `app.set('trust proxy', 1)` in `backend/src/index.ts`
+
+---
+
 ## Summary
 
 | Bug | Description | Status | Verified |
@@ -106,6 +123,7 @@ After logout, the session token stays valid until it expires (24 hours).
 | BUG-003 | Evidence not required | OPEN | - |
 | BUG-004 | Password reset broken | OPEN | - |
 | BUG-005 | Token not blacklisted | OPEN (Low) | - |
+| BUG-006 | Trust proxy not set | OPEN | - |
 
 ---
 

@@ -19,6 +19,7 @@
 | BUG-003 | Evidence requirement disabled | OPEN |
 | BUG-004 | Password reset not working | OPEN |
 | BUG-005 | Token not blacklisted on logout | OPEN (Low priority) |
+| BUG-006 | Trust proxy not configured | OPEN (Found in server logs) |
 
 ### 3. Created Testing Files
 - `BUG-FIX-VERIFICATION.md` - Step-by-step guide to verify bug fixes
