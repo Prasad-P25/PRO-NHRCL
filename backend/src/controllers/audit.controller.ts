@@ -20,9 +20,20 @@ import {
   HeadingLevel,
   BorderStyle,
   VerticalAlign,
+  Header,
+  Footer,
+  PageNumber,
+  NumberFormat,
+  ShadingType,
+  TableBorders,
+  convertInchesToTwip,
 } from 'docx';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Logo paths (place logos in backend/src/assets/logos/)
+const ASSETS_PATH = path.join(__dirname, '..', 'assets', 'logos');
+const PROTECTHER_LOGO = path.join(ASSETS_PATH, 'protecther-logo.png');
 
 export class AuditController {
   getAllAudits = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -358,17 +369,15 @@ export class AuditController {
         [id]
       );
 
-      // TODO: Re-enable evidence requirement for production
-      // For now, just log a warning instead of blocking submission
+      // Evidence requirement for non-compliant items
       if (ncWithoutEvidence.rows.length > 0) {
         const missingItems = ncWithoutEvidence.rows.map((r: any) =>
           `${r.section_name} - Item ${r.sr_no}`
         );
-        logger.warn(`Audit ${id} submitted with NC items missing evidence: ${missingItems.join(', ')}`);
-        // throw new AppError(
-        //   `Cannot submit audit. The following NC items require evidence: ${missingItems.join(', ')}`,
-        //   400
-        // );
+        throw new AppError(
+          `Cannot submit audit. The following NC items require evidence: ${missingItems.join(', ')}`,
+          400
+        );
       }
 
       await db.query(
@@ -952,31 +961,31 @@ export class AuditController {
             width: { size: 5, type: WidthType.PERCENTAGE },
             shading: { fill: 'CCCCCC' },
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ text: 'S.No', alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'S.No', bold: true })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'S.No', bold: true })] })],
           }),
           new TableCell({
             width: { size: 25, type: WidthType.PERCENTAGE },
             shading: { fill: 'CCCCCC' },
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ text: 'Evidence Photo', alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Evidence Photo', bold: true })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Evidence Photo', bold: true })] })],
           }),
           new TableCell({
             width: { size: 10, type: WidthType.PERCENTAGE },
             shading: { fill: 'CCCCCC' },
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ text: 'Risk Level', alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Risk Level', bold: true })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Risk Level', bold: true })] })],
           }),
           new TableCell({
             width: { size: 35, type: WidthType.PERCENTAGE },
             shading: { fill: 'CCCCCC' },
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ text: 'Reference & Recommendation', alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Reference & Recommendation', bold: true })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Reference & Recommendation', bold: true })] })],
           }),
           new TableCell({
             width: { size: 25, type: WidthType.PERCENTAGE },
             shading: { fill: 'CCCCCC' },
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ text: 'Remarks', alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Remarks', bold: true })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Remarks', bold: true })] })],
           }),
         ],
       });
@@ -989,22 +998,47 @@ export class AuditController {
         const evidence = response.evidence || [];
         const photoChildren: any[] = [];
 
-        // Load and embed photos
+        // Load and embed photos with proper aspect ratio
         for (const photo of evidence) {
           if (photo.filePath && photo.fileType && photo.fileType.startsWith('image/')) {
             try {
               const fullPath = path.resolve(photo.filePath);
               if (fs.existsSync(fullPath)) {
                 const imageData = fs.readFileSync(fullPath);
+
+                // Get image dimensions from header
+                let origWidth = 400, origHeight = 300;
+                if (imageData[0] === 0x89 && imageData[1] === 0x50) { // PNG
+                  origWidth = imageData.readUInt32BE(16);
+                  origHeight = imageData.readUInt32BE(20);
+                } else if (imageData[0] === 0xFF && imageData[1] === 0xD8) { // JPEG
+                  let offset = 2;
+                  while (offset < imageData.length - 8) {
+                    if (imageData[offset] === 0xFF && imageData[offset + 1] >= 0xC0 && imageData[offset + 1] <= 0xC3) {
+                      origHeight = imageData.readUInt16BE(offset + 5);
+                      origWidth = imageData.readUInt16BE(offset + 7);
+                      break;
+                    }
+                    if (imageData[offset] === 0xFF) {
+                      offset += 2 + imageData.readUInt16BE(offset + 2);
+                    } else {
+                      offset++;
+                    }
+                  }
+                }
+
+                // Scale to fit max 150x120 while preserving aspect ratio
+                const maxW = 150, maxH = 120;
+                const scale = Math.min(maxW / origWidth, maxH / origHeight, 1);
+                const width = Math.round(origWidth * scale);
+                const height = Math.round(origHeight * scale);
+
                 photoChildren.push(
                   new Paragraph({
                     children: [
                       new ImageRun({
                         data: imageData,
-                        transformation: {
-                          width: 150,
-                          height: 100,
-                        },
+                        transformation: { width, height },
                         type: 'png',
                       }),
                     ],
@@ -1020,7 +1054,7 @@ export class AuditController {
         }
 
         if (photoChildren.length === 0) {
-          photoChildren.push(new Paragraph({ text: 'No photo', alignment: AlignmentType.CENTER }));
+          photoChildren.push(new Paragraph({ children: [new TextRun({ text: 'No photo', italics: true })] , alignment: AlignmentType.CENTER }));
         }
 
         // Determine risk level (NC1 = High/Critical, NC2 = Low/Medium)
@@ -1063,16 +1097,16 @@ export class AuditController {
               new TableCell({
                 verticalAlign: VerticalAlign.TOP,
                 children: [
-                  new Paragraph({ text: reference }),
-                  ...(standardRef ? [new Paragraph({ text: standardRef, children: [new TextRun({ text: standardRef, italics: true, size: 20 })] })] : []),
+                  new Paragraph({ children: [new TextRun({ text: reference })] }),
+                  ...(standardRef ? [new Paragraph({ children: [new TextRun({ text: standardRef, italics: true, size: 20 })] })] : []),
                 ],
               }),
               // Remarks
               new TableCell({
                 verticalAlign: VerticalAlign.TOP,
                 children: [
-                  new Paragraph({ text: response.observation || '' }),
-                  ...(response.remarks ? [new Paragraph({ text: response.remarks, spacing: { before: 100 } })] : []),
+                  new Paragraph({ children: [new TextRun({ text: response.observation || '' })] }),
+                  ...(response.remarks ? [new Paragraph({ spacing: { before: 100 }, children: [new TextRun({ text: response.remarks })] })] : []),
                 ],
               }),
             ],
@@ -1149,6 +1183,596 @@ export class AuditController {
 
       // Send response
       const fileName = `${audit.audit_number}-Report.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Export NC Observations Report - Professional format with logos and page numbers
+  exportNCReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+
+      // Get audit details with project info
+      const auditResult = await db.query(
+        `SELECT a.*, p.code as package_code, p.name as package_name,
+                pr.name as project_name, pr.client_name,
+                u.name as auditor_name
+         FROM audits a
+         JOIN packages p ON a.package_id = p.id
+         JOIN projects pr ON p.project_id = pr.id
+         LEFT JOIN users u ON a.auditor_id = u.id
+         WHERE a.id = $1`,
+        [id]
+      );
+
+      if (auditResult.rows.length === 0) {
+        throw new AppError('Audit not found', 404);
+      }
+
+      const audit = auditResult.rows[0];
+      const auditDate = audit.audit_date ? new Date(audit.audit_date) : new Date();
+      const monthYear = auditDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      // Get NC responses with evidence
+      const ncResponses = await db.query(
+        `SELECT ar.*, ai.sr_no, ai.audit_point, ai.standard_reference, ai.evidence_required, ai.priority,
+                s.code as section_code, s.name as section_name,
+                c.code as category_code, c.name as category_name,
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', ae.id,
+                      'fileName', ae.file_name,
+                      'filePath', ae.file_path,
+                      'fileType', ae.file_type
+                    )
+                  ) FILTER (WHERE ae.id IS NOT NULL), '[]'
+                ) as evidence
+         FROM audit_responses ar
+         JOIN audit_items ai ON ar.audit_item_id = ai.id
+         JOIN audit_sections s ON ai.section_id = s.id
+         JOIN audit_categories c ON s.category_id = c.id
+         LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
+         WHERE ar.audit_id = $1 AND ar.status = 'NC'
+         GROUP BY ar.id, ai.sr_no, ai.audit_point, ai.standard_reference, ai.evidence_required, ai.priority,
+                  s.code, s.name, s.display_order, c.code, c.name, c.display_order
+         ORDER BY c.display_order, s.display_order, ai.sr_no`,
+        [id]
+      );
+
+      // Helper function to load image safely and get dimensions
+      const loadImageWithDimensions = (filePath: string): { data: Buffer; width: number; height: number } | null => {
+        try {
+          const fullPath = path.resolve(filePath);
+          if (fs.existsSync(fullPath)) {
+            const data = fs.readFileSync(fullPath);
+
+            // Try to get image dimensions from PNG/JPEG header
+            let width = 0, height = 0;
+
+            // PNG: dimensions at bytes 16-23
+            if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
+              width = data.readUInt32BE(16);
+              height = data.readUInt32BE(20);
+            }
+            // JPEG: search for SOF0 marker
+            else if (data[0] === 0xFF && data[1] === 0xD8) {
+              let offset = 2;
+              while (offset < data.length - 8) {
+                if (data[offset] === 0xFF) {
+                  const marker = data[offset + 1];
+                  if (marker >= 0xC0 && marker <= 0xC3) {
+                    height = data.readUInt16BE(offset + 5);
+                    width = data.readUInt16BE(offset + 7);
+                    break;
+                  }
+                  const length = data.readUInt16BE(offset + 2);
+                  offset += 2 + length;
+                } else {
+                  offset++;
+                }
+              }
+            }
+
+            // Default dimensions if we couldn't read them
+            if (width === 0 || height === 0) {
+              width = 400;
+              height = 300;
+            }
+
+            return { data, width, height };
+          }
+        } catch (err) {
+          logger.warn(`Could not load image: ${filePath}`);
+        }
+        return null;
+      };
+
+      // Scale image to fit within max dimensions while preserving aspect ratio
+      const scaleImage = (origWidth: number, origHeight: number, maxWidth: number, maxHeight: number) => {
+        const widthRatio = maxWidth / origWidth;
+        const heightRatio = maxHeight / origHeight;
+        const scale = Math.min(widthRatio, heightRatio, 1); // Don't upscale
+        return {
+          width: Math.round(origWidth * scale),
+          height: Math.round(origHeight * scale),
+        };
+      };
+
+      // Try to load PROTECTHER logo
+      let logoImage: Buffer | null = null;
+      if (fs.existsSync(PROTECTHER_LOGO)) {
+        logoImage = fs.readFileSync(PROTECTHER_LOGO);
+      }
+
+      // Build table rows
+      const tableRows: TableRow[] = [];
+
+      // Header row with professional styling
+      const headerRow = new TableRow({
+        tableHeader: true,
+        height: { value: 600, rule: 'atLeast' as const },
+        children: [
+          new TableCell({
+            width: { size: 6, type: WidthType.PERCENTAGE },
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: 'S.No', bold: true, color: 'FFFFFF', size: 22 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 22, type: WidthType.PERCENTAGE },
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: 'EVIDENCE PHOTOS', bold: true, color: 'FFFFFF', size: 22 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 10, type: WidthType.PERCENTAGE },
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: 'Risk Level', bold: true, color: 'FFFFFF', size: 22 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 32, type: WidthType.PERCENTAGE },
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: 'Reference & Recommendation', bold: true, color: 'FFFFFF', size: 22 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 30, type: WidthType.PERCENTAGE },
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: 'Evidence Photos & Remarks', bold: true, color: 'FFFFFF', size: 22 })],
+              }),
+            ],
+          }),
+        ],
+      });
+      tableRows.push(headerRow);
+
+      // Data rows
+      let serialNo = 1;
+      for (const response of ncResponses.rows) {
+        const evidence = response.evidence || [];
+        const imagePhotos: any[] = [];
+
+        // Load evidence photos for left column (first 2 photos max)
+        const leftPhotos: any[] = [];
+        const rightPhotos: any[] = [];
+        let photoIndex = 0;
+
+        for (const photo of evidence) {
+          if (photo.filePath && photo.fileType && photo.fileType.startsWith('image/')) {
+            const imageInfo = loadImageWithDimensions(photo.filePath);
+            if (imageInfo) {
+              // Scale to fit max 140x120 while preserving aspect ratio
+              const scaled = scaleImage(imageInfo.width, imageInfo.height, 140, 120);
+
+              const photoParagraph = new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 100 },
+                children: [
+                  new ImageRun({
+                    data: imageInfo.data,
+                    transformation: { width: scaled.width, height: scaled.height },
+                    type: 'png',
+                  }),
+                ],
+              });
+
+              // Distribute photos: odd to left, even to right
+              if (photoIndex % 2 === 0) {
+                leftPhotos.push(photoParagraph);
+              } else {
+                rightPhotos.push(photoParagraph);
+              }
+              photoIndex++;
+            }
+          }
+        }
+
+        // If no photos, add placeholder
+        if (leftPhotos.length === 0) {
+          leftPhotos.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: 'No photo', italics: true, color: '666666' })],
+            })
+          );
+        }
+        if (rightPhotos.length === 0 && photoIndex > 0) {
+          // Only add placeholder if we have some photos but none for right
+          rightPhotos.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: '-', color: '666666' })],
+            })
+          );
+        } else if (rightPhotos.length === 0) {
+          rightPhotos.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: 'No photo', italics: true, color: '666666' })],
+            })
+          );
+        }
+
+        // Determine risk level: Critical -> NC 1, Major/Minor -> NC 2
+        const riskRating = response.risk_rating || 'Major';
+        const isNC1 = riskRating === 'Critical';
+        const riskLevelText = isNC1 ? 'NC 1' : 'NC 2';
+        const riskColor = isNC1 ? 'FF0000' : 'FF8C00'; // Red for NC1, Orange for NC2
+
+        // Build reference & recommendation content
+        const refChildren: Paragraph[] = [];
+
+        // Category and observation
+        refChildren.push(
+          new Paragraph({
+            spacing: { after: 80 },
+            children: [
+              new TextRun({ text: `${response.category_name}`, bold: true, size: 20 }),
+            ],
+          })
+        );
+
+        // Audit point (observation)
+        if (response.observation) {
+          refChildren.push(
+            new Paragraph({
+              spacing: { after: 80 },
+              children: [new TextRun({ text: response.observation, size: 20 })],
+            })
+          );
+        } else if (response.audit_point) {
+          refChildren.push(
+            new Paragraph({
+              spacing: { after: 80 },
+              children: [new TextRun({ text: response.audit_point, size: 20 })],
+            })
+          );
+        }
+
+        // Standard reference
+        if (response.standard_reference) {
+          refChildren.push(
+            new Paragraph({
+              spacing: { before: 60, after: 60 },
+              children: [
+                new TextRun({ text: 'Reference: ', bold: true, size: 18 }),
+                new TextRun({ text: response.standard_reference, italics: true, size: 18 }),
+              ],
+            })
+          );
+        }
+
+        // Build remarks column content
+        const remarksChildren: Paragraph[] = [];
+
+        // Add photos to remarks column
+        remarksChildren.push(...rightPhotos);
+
+        // Add remarks text if present
+        if (response.remarks) {
+          remarksChildren.push(
+            new Paragraph({
+              spacing: { before: 100, after: 60 },
+              children: [
+                new TextRun({ text: 'Remarks: ', bold: true, size: 18 }),
+                new TextRun({ text: response.remarks, size: 18 }),
+              ],
+            })
+          );
+        }
+
+        // Alternate row background for better readability
+        const rowShading = serialNo % 2 === 0 ? 'F5F5F5' : 'FFFFFF';
+
+        // Create data row
+        const dataRow = new TableRow({
+          children: [
+            // S.No
+            new TableCell({
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.CENTER,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: String(serialNo), bold: true, size: 22 })],
+                }),
+              ],
+            }),
+            // Evidence Photos (left column)
+            new TableCell({
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.CENTER,
+              children: leftPhotos,
+            }),
+            // Risk Level
+            new TableCell({
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.CENTER,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({ text: riskLevelText, bold: true, color: riskColor, size: 24 }),
+                  ],
+                }),
+              ],
+            }),
+            // Reference & Recommendation
+            new TableCell({
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.TOP,
+              children: refChildren,
+            }),
+            // Evidence Photos & Remarks
+            new TableCell({
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.TOP,
+              children: remarksChildren.length > 0 ? remarksChildren : [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: '-', color: '666666' })],
+                }),
+              ],
+            }),
+          ],
+        });
+
+        tableRows.push(dataRow);
+        serialNo++;
+      }
+
+      // Create NC observations table
+      const ncTable = new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: tableRows,
+      });
+
+      // Build document sections (children)
+      const docChildren: any[] = [];
+
+      // Section heading
+      docChildren.push(
+        new Paragraph({
+          spacing: { before: 200, after: 300 },
+          alignment: AlignmentType.LEFT,
+          children: [
+            new TextRun({ text: '9. NC Observations', bold: true, size: 32 }),
+          ],
+        })
+      );
+
+      // Add table or "no observations" message
+      if (ncResponses.rows.length > 0) {
+        docChildren.push(ncTable);
+      } else {
+        docChildren.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 400, after: 400 },
+            children: [
+              new TextRun({ text: 'No non-compliance observations found for this audit.', italics: true, size: 24 }),
+            ],
+          })
+        );
+      }
+
+      // Summary statistics
+      docChildren.push(
+        new Paragraph({
+          spacing: { before: 400, after: 200 },
+          children: [new TextRun({ text: 'Summary', bold: true, size: 28 })],
+        })
+      );
+
+      // Count NC1 and NC2
+      const nc1Count = ncResponses.rows.filter((r: any) => r.risk_rating === 'Critical').length;
+      const nc2Count = ncResponses.rows.length - nc1Count;
+
+      docChildren.push(
+        new Paragraph({
+          spacing: { after: 100 },
+          children: [
+            new TextRun({ text: 'Total NC Observations: ', bold: true, size: 22 }),
+            new TextRun({ text: String(ncResponses.rows.length), size: 22 }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { after: 100 },
+          children: [
+            new TextRun({ text: 'NC 1 (Critical): ', bold: true, color: 'FF0000', size: 22 }),
+            new TextRun({ text: String(nc1Count), size: 22 }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { after: 100 },
+          children: [
+            new TextRun({ text: 'NC 2 (Major/Minor): ', bold: true, color: 'FF8C00', size: 22 }),
+            new TextRun({ text: String(nc2Count), size: 22 }),
+          ],
+        })
+      );
+
+      // Build header content with logo
+      const headerContent: Paragraph[] = [];
+
+      // Add logo if exists
+      if (fs.existsSync(PROTECTHER_LOGO)) {
+        try {
+          const logoData = fs.readFileSync(PROTECTHER_LOGO);
+          // Get logo dimensions
+          let logoWidth = 1920, logoHeight = 540; // Default for this logo
+          if (logoData[0] === 0x89 && logoData[1] === 0x50) { // PNG
+            logoWidth = logoData.readUInt32BE(16);
+            logoHeight = logoData.readUInt32BE(20);
+          }
+          // Scale logo to fit header (max width 200px)
+          const scale = Math.min(200 / logoWidth, 60 / logoHeight);
+          const scaledWidth = Math.round(logoWidth * scale);
+          const scaledHeight = Math.round(logoHeight * scale);
+
+          headerContent.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 100 },
+              children: [
+                new ImageRun({
+                  data: logoData,
+                  transformation: { width: scaledWidth, height: scaledHeight },
+                  type: 'png',
+                }),
+              ],
+            })
+          );
+        } catch (err) {
+          logger.warn('Could not load logo for header');
+        }
+      }
+
+      // Title row
+      headerContent.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 100 },
+          children: [
+            new TextRun({
+              text: 'EHS AUDIT REPORT',
+              bold: true,
+              size: 32,
+              color: '1F4E79',
+            }),
+          ],
+        })
+      );
+
+      // Project and date info
+      headerContent.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 50 },
+          children: [
+            new TextRun({
+              text: `${audit.project_name || 'Project'} | ${monthYear}`,
+              size: 22,
+              color: '666666',
+            }),
+          ],
+        })
+      );
+
+      // Package info
+      headerContent.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({
+              text: `Package: ${audit.package_code} - ${audit.package_name}`,
+              size: 20,
+              color: '888888',
+            }),
+          ],
+        })
+      );
+
+      // Create document with header and footer
+      const doc = new Document({
+        sections: [
+          {
+            properties: {
+              page: {
+                margin: {
+                  top: convertInchesToTwip(1),
+                  bottom: convertInchesToTwip(0.75),
+                  left: convertInchesToTwip(0.5),
+                  right: convertInchesToTwip(0.5),
+                },
+              },
+            },
+            headers: {
+              default: new Header({
+                children: headerContent,
+              }),
+            },
+            footers: {
+              default: new Footer({
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [
+                      new TextRun({ text: 'PROTECTHER Safety Consultants | ', size: 18, color: '666666' }),
+                      new TextRun({ text: 'Page ', size: 18 }),
+                      new TextRun({
+                        children: [PageNumber.CURRENT],
+                        size: 18,
+                      }),
+                      new TextRun({ text: ' of ', size: 18 }),
+                      new TextRun({
+                        children: [PageNumber.TOTAL_PAGES],
+                        size: 18,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            },
+            children: docChildren,
+          },
+        ],
+      });
+
+      // Generate buffer and send response
+      const buffer = await Packer.toBuffer(doc);
+      const fileName = `NC-Observations-${audit.audit_number}-${monthYear.replace(' ', '-')}.docx`;
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       res.send(buffer);

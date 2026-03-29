@@ -1,62 +1,56 @@
-# Session Notes - 2026-03-11
+# Session Notes - 2026-03-29
 
 ## What We Did Today
 
-### 1. Fixed 502 Bad Gateway Error
-- **Problem**: Website https://audit.protecther.in was showing 502 error
-- **Cause**: Backend and frontend servers were not running
-- **Solution**: Restarted servers using PowerShell:
-  ```powershell
-  powershell -ExecutionPolicy Bypass -Command "Set-Location 'C:\PROJECTS\PRO-NHRCL'; npm.cmd run dev"
-  ```
-- **Status**: FIXED - Servers running on ports 3000 (frontend) and 5000 (backend)
+### 1. Verified All Bugs Still Existed
+Checked all 4 open bugs from previous session - all still present.
 
-### 2. Bug Review
-| Bug | Description | Status |
-|-----|-------------|--------|
-| BUG-001 | Stack trace exposed in errors | FIXED (NODE_ENV=production) |
-| BUG-002 | CORS missing production URL | FIXED (URL added to .env) |
-| BUG-003 | Evidence requirement disabled | OPEN |
-| BUG-004 | Password reset not working | OPEN |
-| BUG-005 | Token not blacklisted on logout | OPEN (Low priority) |
-| BUG-006 | Trust proxy not configured | OPEN (Found in server logs) |
+### 2. Fixed All 4 Bugs
 
-### 3. Created Testing Files
-- `BUG-FIX-VERIFICATION.md` - Step-by-step guide to verify bug fixes
-- `TESTING-PLAN.md` - Full QA testing checklist (already existed)
+| Bug | Issue | Fix |
+|-----|-------|-----|
+| BUG-003 | Evidence not required for NC items | Uncommented validation code in `audit.controller.ts` |
+| BUG-004 | Password reset not working | Full implementation with token generation, hashing, expiry |
+| BUG-005 | Token not blacklisted on logout | Created `tokenBlacklist.ts`, integrated in auth middleware |
+| BUG-006 | Trust proxy not configured | Added `app.set('trust proxy', 1)` in `index.ts` |
 
-### 4. Git Push
-- Committed 92 files with all changes
-- Pushed to: https://github.com/Prasad-P25/PRO-NHRCL
-- Commit: `fd141c5`
+### 3. Files Changed/Created
+
+**Modified:**
+- `backend/src/index.ts` - Added trust proxy
+- `backend/src/controllers/auth.controller.ts` - Password reset + logout blacklist
+- `backend/src/controllers/audit.controller.ts` - Evidence requirement enabled
+- `backend/src/middleware/auth.ts` - Blacklist check
+- `README.md` - Fixed admin email
+- `CLAUDE.md` - Updated test commands
+
+**New Files:**
+- `backend/src/utils/tokenBlacklist.ts` - Token blacklist utility
+- `backend/src/database/migrations/003-add-password-reset.ts` - DB migration
+
+### 4. Database Migration
+Ran migration to add password reset columns to users table:
+- `reset_token VARCHAR(255)`
+- `reset_token_expires TIMESTAMP`
+
+### 5. Testing
+All bug fixes verified working:
+- Login: PASS
+- Logout with blacklist: PASS
+- Blacklisted token rejected: PASS
+- Password reset token generated: PASS
+- Health check: PASS
 
 ---
 
-## Where We Left Off
-
-**Next Task**: Testing Package Management (Phase 4 in TESTING-PLAN.md)
-- Need to find Packages page in the UI
-- Test creating/editing packages
+## Server Status
+- Frontend: http://localhost:3000 (running)
+- Backend: http://localhost:5000 (running)
+- Database: Connected
 
 ---
 
-## How to Start Tomorrow
-
-### 1. Start the Servers
-Run this command in PowerShell (as Administrator recommended):
-```powershell
-cd C:\PROJECTS\PRO-NHRCL
-npm run dev
-```
-
-Or double-click: `C:\PROJECTS\PRO-NHRCL\start-protecther.bat`
-
-### 2. Verify Servers Running
-- Frontend: http://localhost:3000
-- Backend: http://localhost:5000/health (should show `{"status":"ok"}`)
-- Production: https://audit.protecther.in
-
-### 3. Login Credentials
+## Test Credentials
 | Role | Email | Password |
 |------|-------|----------|
 | Super Admin | admin@protecther.in | admin123 |
@@ -66,26 +60,14 @@ Or double-click: `C:\PROJECTS\PRO-NHRCL\start-protecther.bat`
 
 ---
 
-## Important File Locations
-
-| File | Purpose |
-|------|---------|
-| `backend/.env` | Database & server config (DO NOT COMMIT) |
-| `TESTING-PLAN.md` | Full QA testing checklist |
-| `BUG-FIX-VERIFICATION.md` | Bug fix verification guide |
-| `CLAUDE.md` | Project documentation for Claude Code |
-| `start-protecther.bat` | Start all services |
-| `stop-protecther.bat` | Stop all services |
-
----
-
-## Server Status (End of Session)
-- Background task ID: `b7ddd96` (servers running)
-- If servers stop, restart with `npm run dev` from project folder
-
----
-
-## Git Config
-- User: Prasad-p25
-- Email: prasad.a.palekar@gmail.com
+## Git Info
+- Branch: master
 - Remote: https://github.com/Prasad-P25/PRO-NHRCL.git
+
+---
+
+## Previous Session (2026-03-11)
+- Fixed 502 Bad Gateway Error
+- Fixed BUG-001 (Stack trace exposed)
+- Fixed BUG-002 (CORS missing production URL)
+- Created testing documentation

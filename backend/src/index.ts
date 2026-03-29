@@ -28,6 +28,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy for Cloudflare/reverse proxy (fixes rate limiter warnings)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',');

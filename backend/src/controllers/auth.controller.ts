@@ -2,9 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { db } from '../database/connection';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
+import { tokenBlacklist } from '../utils/tokenBlacklist';
+import { logger } from '../utils/logger';
 
 export class AuthController {
   login = async (req: Request, res: Response, next: NextFunction) => {
@@ -85,7 +88,15 @@ export class AuthController {
 
   logout = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      // In a production app, you might want to blacklist the token
+      // Extract token and add to blacklist
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        // Blacklist token for 24 hours (same as JWT expiry)
+        tokenBlacklist.add(token, 24 * 60 * 60 * 1000);
+        logger.info(`Token blacklisted for user ${req.user?.id}`);
+      }
+
       res.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
       next(error);
@@ -100,11 +111,20 @@ export class AuthController {
       }
 
       const token = authHeader.split(' ')[1];
+
+      // Check if old token is blacklisted
+      if (tokenBlacklist.isBlacklisted(token)) {
+        throw new AppError('Token has been revoked', 401);
+      }
+
       const decoded = jwt.verify(
         token,
         process.env.JWT_SECRET || 'default-secret',
         { ignoreExpiration: true }
       ) as { userId: number };
+
+      // Blacklist the old token
+      tokenBlacklist.add(token, 24 * 60 * 60 * 1000);
 
       const newToken = jwt.sign(
         { userId: decoded.userId },
@@ -130,7 +150,32 @@ export class AuthController {
 
       const { email } = req.body;
 
-      const result = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+      const result = await db.query('SELECT id, name FROM users WHERE email = $1 AND is_active = true', [email]);
+
+      if (result.rows.length > 0) {
+        const user = result.rows[0];
+
+        // Generate secure reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+        // Token expires in 1 hour
+        const resetTokenExpires = new Date(Date.now() + 60 * 60 * 1000);
+
+        // Save hashed token to database
+        await db.query(
+          'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
+          [resetTokenHash, resetTokenExpires, user.id]
+        );
+
+        // Log the reset token (in production, send via email)
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+        logger.info(`Password reset requested for ${email}. Reset URL: ${resetUrl}`);
+
+        // TODO: Send email with reset link
+        // For now, log it. In production, use email service:
+        // await emailService.sendPasswordResetEmail(email, user.name, resetUrl);
+      }
 
       // Always return success to prevent email enumeration
       res.json({
@@ -151,9 +196,41 @@ export class AuthController {
 
       const { token, password } = req.body;
 
-      // In a production app, validate the reset token
-      // For now, just return an error
-      throw new AppError('Invalid or expired reset token', 400);
+      // Hash the provided token to compare with stored hash
+      const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      // Find user with valid token
+      const result = await db.query(
+        `SELECT id, email FROM users
+         WHERE reset_token = $1
+         AND reset_token_expires > CURRENT_TIMESTAMP
+         AND is_active = true`,
+        [resetTokenHash]
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('Invalid or expired reset token', 400);
+      }
+
+      const user = result.rows[0];
+
+      // Hash new password
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Update password and clear reset token
+      await db.query(
+        `UPDATE users
+         SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [passwordHash, user.id]
+      );
+
+      logger.info(`Password reset successful for user ${user.email}`);
+
+      res.json({
+        success: true,
+        message: 'Password has been reset successfully. You can now login with your new password.',
+      });
     } catch (error) {
       next(error);
     }

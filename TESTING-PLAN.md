@@ -287,11 +287,11 @@ When you find a bug, note:
 
 | Phase | Status | Bugs Found | Notes |
 |-------|--------|------------|-------|
-| 1. Authentication | 25% | 1 | Stack trace exposed |
+| 1. Authentication | 25% | 2 (FIXED) | Stack trace, token blacklist - FIXED |
 | 2. Dashboard | Not Started | | |
 | 3. Projects | Not Started | | |
 | 4. Packages | Not Started | | |
-| 5. Audits | Not Started | 1 | Evidence requirement disabled |
+| 5. Audits | Not Started | 1 (FIXED) | Evidence requirement - FIXED |
 | 6. CAPA | Not Started | | |
 | 7. KPI | Not Started | | |
 | 8. Maturity | Not Started | | |
@@ -305,65 +305,34 @@ When you find a bug, note:
 
 ## Known Issues / Bugs Found
 
-### BUG-001: Stack Trace Exposed in API Errors (SECURITY - HIGH)
-**Page**: API responses
-**Status**: Open
-**Steps**:
-1. Send invalid login request to `/api/v1/auth/login`
-2. Observe response
-
-**Expected**: Only error message shown
-**Actual**: Full stack trace exposed in response:
-```json
-{"success":false,"message":"Invalid email or password","stack":"Error: Invalid email or password\n at AuthController.login..."}
-```
-
-**Root Cause**: `NODE_ENV=development` in `backend/.env` - should be `production`
-**Fix**: Change `NODE_ENV=development` to `NODE_ENV=production` in `backend/.env`
+### BUG-001: Stack Trace Exposed in API Errors ✅ FIXED (2026-03-11)
+**Fix**: Set `NODE_ENV=production` in `backend/.env`
 
 ---
 
-### BUG-002: CORS Origin Missing Production URLs
-**Page**: API Configuration
-**Status**: Open
-**Steps**:
-1. Check `backend/.env` CORS_ORIGIN setting
-
-**Expected**: Production URLs included
-**Actual**: `CORS_ORIGIN=https://mahsr.protecther.in,http://localhost:3000,...`
-Missing: `https://audit.protecther.in`
-
-**Fix**: Add `https://audit.protecther.in` to CORS_ORIGIN
+### BUG-002: CORS Origin Missing Production URLs ✅ FIXED (2026-03-11)
+**Fix**: Added `https://audit.protecther.in` to CORS_ORIGIN
 
 ---
 
-### BUG-003: Evidence Requirement Disabled for Audit Submission
-**Page**: Audit Execution
-**Status**: Open (TODO in code)
-**File**: `backend/src/controllers/audit.controller.ts:361`
-
-**Issue**: Non-compliant items can be submitted without evidence photos.
-**Code Comment**: `// TODO: Re-enable evidence requirement for production`
+### BUG-003: Evidence Requirement Disabled ✅ FIXED (2026-03-29)
+**Fix**: Enabled validation code in `backend/src/controllers/audit.controller.ts`
 
 ---
 
-### BUG-004: Password Reset Not Implemented
-**Page**: Forgot Password
-**Status**: Open
-**File**: `backend/src/controllers/auth.controller.ts:156`
-
-**Issue**: Password reset always returns "Invalid or expired reset token"
+### BUG-004: Password Reset Not Implemented ✅ FIXED (2026-03-29)
+**Fix**: Full implementation with token generation, hashing, and validation
 
 ---
 
-### BUG-005: Token Blacklisting Not Implemented
-**Page**: Logout
-**Status**: Open (Low Priority)
-**File**: `backend/src/controllers/auth.controller.ts:88`
-
-**Issue**: JWT tokens remain valid after logout until expiry.
-**Comment in code**: `// In a production app, you might want to blacklist the token`
+### BUG-005: Token Blacklisting Not Implemented ✅ FIXED (2026-03-29)
+**Fix**: Created `tokenBlacklist.ts` and integrated in auth middleware
 
 ---
 
-**Start with Phase 1 and work through each phase in order. Mark each checkbox as you complete it.**
+### BUG-006: Trust Proxy Not Configured ✅ FIXED (2026-03-29)
+**Fix**: Added `app.set('trust proxy', 1)` in `backend/src/index.ts`
+
+---
+
+**All known bugs have been fixed! Continue with QA testing phases.**

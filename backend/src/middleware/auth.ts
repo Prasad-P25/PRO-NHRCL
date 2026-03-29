@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
 import { db } from '../database/connection';
+import { tokenBlacklist } from '../utils/tokenBlacklist';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -28,6 +29,12 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
+
+    // Check if token is blacklisted (logged out)
+    if (tokenBlacklist.isBlacklisted(token)) {
+      throw new AppError('Token has been revoked', 401);
+    }
+
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET || 'default-secret'

@@ -35,6 +35,7 @@ Migrations are in `backend/src/database/migrations/`. Schema is defined in `migr
 npm run build            # Build both workspaces
 npm run lint --workspace=frontend    # Lint frontend
 npm run lint --workspace=backend     # Lint backend
+npm run preview --workspace=frontend # Preview production build
 ```
 
 ### Testing
@@ -43,7 +44,7 @@ npm run lint --workspace=backend     # Lint backend
 npm run test --workspace=frontend           # Run all tests
 npm run test:ui --workspace=frontend        # Interactive UI
 npm run test:coverage --workspace=frontend  # Coverage report
-npx vitest run src/path/to/file.test.ts --workspace=frontend  # Single file
+npx vitest run frontend/src/path/to/file.test.ts  # Single file (from root)
 
 # Backend (Jest)
 npm run test --workspace=backend            # Run all tests

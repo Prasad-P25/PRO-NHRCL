@@ -114,7 +114,7 @@ Use these credentials to test the application:
 
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@protecther.com | admin123 |
+| Admin | admin@protecther.in | admin123 |
 | PMC Head | pmchead@protecther.com | demo123 |
 | Package Manager | manager.c2@protecther.com | demo123 |
 | Auditor | auditor1@protecther.com | demo123 |
