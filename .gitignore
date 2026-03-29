@@ -40,6 +40,8 @@ Thumbs.db
 # Uploads
 uploads/*
 !uploads/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # Database backups
 backups/*
