@@ -55,6 +55,8 @@ router.get('/:id', auditController.getAuditById);
 
 router.get('/:id/export-word', auditController.exportToWord);
 
+router.get('/:id/export-nc-report', auditController.exportNCReport);
+
 router.put('/:id', auditController.updateAudit);
 
 router.delete('/:id', auditController.deleteAudit);

@@ -169,4 +169,45 @@ export const auditService = {
       throw error;
     }
   },
+
+  // Export NC Observations Report (Professional format with photos)
+  exportNCReport: async (auditId: number): Promise<void> => {
+    try {
+      const response = await api.get(`/audits/${auditId}/export-nc-report`, {
+        responseType: 'blob',
+      });
+
+      // Check if we got a valid response
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Empty response received');
+      }
+
+      // Create download link
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Extract filename from Content-Disposition header or use default
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = `NC-Observations-${auditId}.docx`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/);
+        if (match) {
+          filename = match[1];
+        }
+      }
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('NC Report export error:', error);
+      throw error;
+    }
+  },
 };

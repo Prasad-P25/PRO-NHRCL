@@ -104,6 +104,7 @@ export function AuditExecutionPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingNC, setIsExportingNC] = useState(false);
 
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -412,6 +413,18 @@ export function AuditExecutionPage() {
       alert('Failed to export audit. Please try again.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportNCReport = async () => {
+    setIsExportingNC(true);
+    try {
+      await auditService.exportNCReport(auditId);
+    } catch (error) {
+      console.error('NC Report export failed:', error);
+      alert('Failed to export NC report. Please try again.');
+    } finally {
+      setIsExportingNC(false);
     }
   };
 
@@ -737,6 +750,17 @@ export function AuditExecutionPage() {
               <FileDown className="mr-2 h-4 w-4" />
             )}
             Export Word
+          </Button>
+          <Button variant="default" size="icon" className="sm:hidden bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC} title="NC Report">
+            {isExportingNC ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+          </Button>
+          <Button variant="default" className="hidden sm:flex bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC}>
+            {isExportingNC ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <AlertTriangle className="mr-2 h-4 w-4" />
+            )}
+            NC Report
           </Button>
           {(auditData.status === 'Draft' || auditData.status === 'In Progress') && (
             <>
