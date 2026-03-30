@@ -8,22 +8,23 @@ PROTECTHER Audit Panel - A full-stack web application for managing construction 
 
 ## Tech Stack
 
-- **Backend**: Node.js + Express + TypeScript, PostgreSQL, JWT auth, Winston logging
-- **Frontend**: React 18 + TypeScript, Vite, Tailwind CSS, Zustand (state), React Query, Radix UI
+- **Backend**: Node.js 18+, Express, TypeScript, PostgreSQL 15+, JWT auth, Winston logging, nodemailer
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Zustand (state), React Query, Radix UI, Recharts
 
 ## Commands
 
 ### Development
 ```bash
-npm run dev              # Start both frontend (port 3000) and backend (port 5000)
-npm run dev:frontend     # Frontend only
-npm run dev:backend      # Backend only
+npm install               # Install all dependencies (both workspaces)
+npm run dev               # Start both frontend (port 3000) and backend (port 5000)
+npm run dev:frontend      # Frontend only
+npm run dev:backend       # Backend only
 ```
 
 ### Database
 ```bash
-npm run db:migrate       # Run migrations (backend workspace)
-npm run db:seed          # Seed sample data
+npm run db:migrate        # Run migrations (backend workspace)
+npm run db:seed           # Seed sample data (roles, users, categories, sample audits)
 npm run cleanup --workspace=backend   # Clean up duplicate records
 npm run backup --workspace=backend    # Backup database
 ```
@@ -32,7 +33,7 @@ Migrations are in `backend/src/database/migrations/`. Schema is defined in `migr
 
 ### Build & Lint
 ```bash
-npm run build            # Build both workspaces
+npm run build             # Build both workspaces
 npm run lint --workspace=frontend    # Lint frontend
 npm run lint --workspace=backend     # Lint backend
 npm run preview --workspace=frontend # Preview production build
@@ -61,74 +62,266 @@ Frontend tests in `frontend/src/**/*.{test,spec}.{ts,tsx}`, backend tests in `ba
 - Root `package.json` uses npm workspaces (`frontend/`, `backend/`)
 - `concurrently` runs both servers in dev mode
 
+### Database Schema (PostgreSQL)
+
+**Core Tables:**
+- `projects` - Client projects (code, name, client_name, location, status)
+- `packages` - Sites within projects (project_id FK, code, name, contractor_name)
+- `users` - Auth & profile (email, password_hash, role_id FK, package_id FK, reset_token)
+- `roles` - 6 roles with JSONB permissions
+- `user_project_assignments` - Many-to-many user↔project with is_default flag
+
+**Audit System:**
+- `audit_categories` - 18 pre-seeded categories (Statutory, SHE, HIRA, Permits, Scaffolding, etc.)
+- `audit_sections` - Sub-sections within categories (category_id FK)
+- `audit_items` - 600+ checkpoint items (section_id FK, audit_point, priority P1/P2)
+- `audits` - Main audit record (package_id, auditor_id, status, compliance_percentage, locked_at)
+- `audit_category_selection` - Many-to-many audit↔categories
+- `audit_responses` - Item responses: status (C/NC/NA), observation, risk_rating, capa_required
+- `audit_response_history` - Change tracking with old/new values, changed_by, ip_address
+- `audit_evidences` - File uploads linked to responses
+- `audit_comments` - Discussion threads on audits
+- `audit_attachments` - Audit-level file attachments
+
+**CAPA:**
+- `capa` - Corrective/Preventive Actions (response_id FK, finding_description, root_cause, corrective_action, preventive_action, responsible_person, target_date, status, verified_by)
+
+**KPI:**
+- `kpi_indicators` - 14 indicator definitions (7 Leading, 7 Lagging) with formulas and benchmarks
+- `kpi_entries` - Monthly data (package_id, indicator_id, period_month/year, target_value, actual_value, man_hours_worked, incidents_count)
+
+**Maturity:**
+- `maturity_assessments` - Assessment records (package_id, overall_score, status)
+- `maturity_responses` - Question scores 1-5 with evidence, gaps, recommendations (10 dimensions, ~50 questions)
+
+**Support:**
+- `notifications` - In-app notifications with type, priority, is_read
+- `audit_logs` - System audit trail with JSONB old/new values
+- `scheduled_reports` / `generated_reports` - Report scheduling and history
+
 ### Backend (`backend/src/`)
-- `controllers/` - Business logic for each domain (audit, capa, kpi, etc.)
-- `routes/` - Express route definitions, all mounted under `/api/v1/`
-- `middleware/auth.ts` - JWT verification, role-based access
-- `middleware/rateLimiter.ts` - API rate limiting
-- `database/connection.ts` - PostgreSQL pool with `pg`
-- `database/migrate.ts` - Schema migrations
-- `database/seed.ts` - Sample data seeder
-- `jobs/capaReminder.ts` - Scheduled CAPA overdue/due-soon notifications
-- `services/email.service.ts` - Email via nodemailer (SMTP config in .env)
-- `services/` - Business services (email, report generation with docx/xlsx)
+
+```
+├── index.ts                 # Express app setup, middleware, route mounting
+├── controllers/             # Business logic (13 controllers)
+│   ├── auth.controller.ts       # Login, logout, password reset
+│   ├── audit.controller.ts      # Audit CRUD, responses, exports (largest ~71KB)
+│   ├── capa.controller.ts       # CAPA CRUD, analytics, email notifications
+│   ├── kpi.controller.ts        # KPI entries, trends, summary calculations
+│   ├── dashboard.controller.ts  # Aggregated metrics
+│   ├── maturity.controller.ts   # Assessment with hardcoded 10-dimension model
+│   └── ...
+├── routes/                  # Express route definitions (/api/v1/*)
+├── middleware/
+│   ├── auth.ts              # JWT verify, authorize(...roles), project access check
+│   ├── rateLimiter.ts       # 100/min general, 5/min auth, 10/min uploads
+│   ├── errorHandler.ts      # AppError class, global error handler
+│   └── requestLogger.ts     # Winston request logging
+├── services/
+│   └── email.service.ts     # Nodemailer SMTP, CAPA notification templates
+├── jobs/
+│   └── capaReminder.ts      # Daily job: overdue/due-soon CAPA notifications
+├── utils/
+│   ├── logger.ts            # Winston config (console + file, 5MB rotation)
+│   └── tokenBlacklist.ts    # In-memory revoked tokens (hourly cleanup)
+└── database/
+    ├── connection.ts        # PostgreSQL pool
+    ├── migrate.ts           # Schema migrations
+    ├── seed.ts              # Sample data
+    └── migrations/          # Individual migration files
+```
 
 ### Frontend (`frontend/src/`)
-- `services/api.ts` - Axios instance with auth interceptor (auto-attaches JWT and `X-Project-Id` header, handles 401)
-- `store/authStore.ts` - Zustand store for auth state (persisted to localStorage as `auth-storage`)
-- `store/appStore.ts` - Zustand store for app state (current project selection)
-- `pages/` - Full page components (Dashboard, AuditExecution, CAPAList, etc.)
-- `components/ui/` - Reusable Radix-based UI components
-- `lib/export.ts` - Excel/PDF export utilities using xlsx and jspdf
-- `hooks/` - Custom React hooks (useDebounce, useLocalStorage, etc.)
+
+```
+├── App.tsx                  # React Router setup, all routes
+├── main.tsx                 # Entry point, QueryClientProvider
+├── services/
+│   ├── api.ts               # Axios instance with interceptors (JWT, X-Project-Id, 401 handler)
+│   ├── audit.service.ts     # Audit CRUD, responses, evidence, Word export
+│   ├── capa.service.ts      # CAPA CRUD, close
+│   ├── kpi.service.ts       # KPI entries, summary
+│   ├── maturity.service.ts  # Assessment CRUD
+│   ├── dashboard.service.ts # Overview, KPI summary
+│   ├── settings.service.ts  # Users, roles, packages, checklist CRUD
+│   └── ...
+├── store/
+│   ├── authStore.ts         # Zustand: user, token, isAuthenticated (persisted)
+│   └── appStore.ts          # Zustand: sidebarOpen, currentProject, packages, categories
+├── pages/                   # 21 page components
+│   ├── Dashboard.tsx        # KPI gauges, compliance charts, CAPA status, trends
+│   ├── AuditList.tsx        # Filterable audit list with export
+│   ├── NewAudit.tsx         # Multi-step wizard (package→type→categories→schedule)
+│   ├── AuditExecution.tsx   # Main audit page: category→section→item tree, responses, evidence
+│   ├── CAPAList.tsx         # CAPA management with status filters
+│   ├── CAPAAnalytics.tsx    # Charts: status breakdown, trends, overdue analysis
+│   ├── KPIDashboard.tsx     # Line charts, benchmarks, alerts
+│   ├── KPIEntry.tsx         # Bulk monthly data entry
+│   ├── MaturityAssessment.tsx # Radar chart, dimension scoring
+│   └── ...
+├── components/
+│   ├── layout/              # MainLayout (Header+Sidebar), ProjectSelector, ProjectGuard
+│   ├── audit/               # AuditComments, AuditAttachments
+│   └── ui/                  # Radix-based primitives (button, dialog, table, etc.)
+├── lib/
+│   ├── utils.ts             # cn() helper for Tailwind classes
+│   └── export.ts            # Excel (xlsx) and PDF (jspdf) export utilities
+└── hooks/                   # useDebounce, useLocalStorage, etc.
+```
+
+### API Endpoints
+
+All routes under `/api/v1/`. Health check at `/health`.
+
+| Module | Key Endpoints |
+|--------|---------------|
+| **auth** | POST login, logout, refresh, forgot-password, reset-password |
+| **users** | GET/PUT /me, CRUD /users, pagination & filtering |
+| **projects** | CRUD, GET /:id/users, POST /:id/users, POST /:id/set-default |
+| **packages** | CRUD, GET /:id/audits, GET /:id/kpis |
+| **audits** | CRUD, POST /:id/submit, /:id/approve, /:id/reject |
+| | GET/POST /:id/responses, GET /:id/history |
+| | GET/POST /:id/comments, GET/POST /:id/attachments |
+| | GET /:id/export-word, /:id/export-nc-report |
+| | POST /responses/:id/evidence |
+| **audit-categories** | CRUD categories, sections, items |
+| **capa** | CRUD, GET /analytics, POST /:id/close |
+| **kpi** | GET /indicators, /summary, /trends, CRUD /entries |
+| **dashboard** | GET /overview, /project-comparison, /package/:id, /kpi-summary |
+| **maturity** | GET /model, CRUD assessments, PUT /:id/responses, POST /:id/submit |
+| **roles** | CRUD with permission matrix |
+| **notifications** | GET list, PUT /:id/read, PUT /mark-all-read, DELETE |
+| **reports** | GET compliance-summary, nc-summary, capa-status, trend-analysis, POST /export |
+| **scheduled-reports** | CRUD, POST /:id/toggle, /:id/run, /generate |
 
 ### API Response Format
-All endpoints return: `{ success: boolean, data?: any, message?: string }`
-
-### API Base Path
-All routes use `/api/v1/` prefix (not `/api/`). Health check at `/health`.
-
-Key route modules: auth, users, packages, audit-categories, audits, capa, kpi, dashboard, reports, maturity, roles, notifications, scheduled-reports
+```json
+{ "success": boolean, "data": T, "message"?: string }
+// Paginated:
+{ "success": true, "data": [], "total": n, "page": n, "pageSize": n, "totalPages": n }
+```
 
 ### Frontend Routes
-Protected routes wrapped in `MainLayout`. Key paths:
-- `/audits`, `/audits/new`, `/audits/:id` - Audit management
-- `/capa`, `/capa/open`, `/capa/overdue` - CAPA tracking
-- `/kpi`, `/kpi/entry` - KPI data entry
-- `/maturity`, `/maturity/:id` - Safety maturity assessments
-- `/projects` - Multi-project management
-- `/settings/users`, `/settings/roles` - Admin settings
 
-## Key Business Logic
+Protected routes wrapped in `MainLayout`. Key paths:
+- `/` - Dashboard
+- `/audits`, `/audits/new`, `/audits/:id` - Audit management
+- `/capa`, `/capa/analytics`, `/capa/open`, `/capa/overdue` - CAPA tracking
+- `/kpi`, `/kpi/dashboard`, `/kpi/entry` - KPI data
+- `/maturity`, `/maturity/:id` - Safety maturity assessments
+- `/projects`, `/projects/:id/settings` - Multi-project management
+- `/settings/users`, `/settings/roles`, `/settings/checklist` - Admin settings
+- `/profile` - User profile
+
+## Business Logic
 
 ### Audit Workflow
-Draft -> In Progress -> Completed -> Pending Review -> Approved
+```
+Draft → In Progress → Pending Review → Approved (locked)
+                                    → Rejected (return to auditor)
+```
+- On submit: validates NC items have evidence, auto-creates CAPAs for NC+capa_required
+- On approve: sets `locked_at` timestamp, no further edits allowed
+- Audit number format: `AUD-{PACKAGE_CODE}-{YEAR}-{SEQ}`
 
 ### Compliance Calculation
 ```
-Compliance % = (Compliant Items / (Total Items - NA Items)) * 100
+Compliance % = (Compliant Items / (Total Items - NA Items)) × 100
 ```
 
-### KPI Formulas
-- LTIFR = (Lost Time Injuries x 1,000,000) / Man-hours
-- TRIFR = (Total Recordable Injuries x 1,000,000) / Man-hours
+### CAPA Workflow
+```
+Open → In Progress → Closed (with verification)
+```
+- Auto-created from NC audit responses with `capa_required=true`
+- CAPA number format: `CAPA-{YEAR}-{SEQ}`
+- Fields: finding_description, root_cause, corrective_action, preventive_action, responsible_person, target_date
 
-## User Roles (hierarchical permissions)
-Super Admin > PMC Head > Package Manager > Auditor > Contractor > Viewer
+### CAPA Reminder Job (`jobs/capaReminder.ts`)
+- Runs every 24 hours (starts on server boot)
+- Checks for overdue CAPAs (target_date < today, status != Closed)
+- Checks for due-soon CAPAs (due within 3 days)
+- Sends in-app notifications + emails to Package Managers
+
+### KPI Formulas
+- **LTIFR** = (Lost Time Injuries × 1,000,000) / Man-hours
+- **TRIFR** = (Total Recordable Injuries × 1,000,000) / Man-hours
+- Leading indicators: Safety Inspections, Hazard Reports, Near Miss, TBT Attendance, PTW Compliance, CAPA Closure Rate
+- Lagging indicators: LTIFR, TRIFR, Fatality Rate, Severity Rate, Man-hours, Days Without LTI
+
+### Maturity Assessment
+- 10 dimensions: Leadership, Policy, Organization, Risk Management, Competence, Communication, Operational Control, Emergency, Incident Management, Performance
+- 5-level scoring: 1=Initial, 2=Developing, 3=Defined, 4=Managed, 5=Optimized
+- ~50 questions total, radar chart visualization
+
+## Authentication & Authorization
+
+### JWT Auth
+- Token in `Authorization: Bearer <token>` header
+- 24h expiry (configurable via JWT_EXPIRES_IN)
+- Logout adds token to in-memory blacklist (hourly cleanup)
+- Password reset via email token (1-hour expiry)
+
+### Role Hierarchy (6 roles)
+1. **Super Admin** - Full system access, sees all projects
+2. **PMC Head** - Project oversight, can approve audits
+3. **Package Manager** - Package-level access, CAPA management
+4. **Auditor** - Conduct audits
+5. **Contractor** - Limited data access
+6. **Viewer** - Read-only
+
+### Multi-Project Support
+- Frontend sends `X-Project-Id` header with every request
+- Users assigned to projects via `user_project_assignments` table
+- Each user has one default project (`is_default=true`)
+- Super Admin sees all projects; others filtered by assignment
+
+## Rate Limiting
+- General API: 100 requests/minute
+- Auth endpoints: 5 requests/minute
+- File uploads: 10 requests/minute
 
 ## Test Credentials (after seeding)
-- admin@protecther.in / admin123 (Super Admin)
-- pmchead@protecther.com / demo123 (PMC Head)
-- manager.c2@protecther.com / demo123 (Package Manager)
-- auditor1@protecther.com / demo123 (Auditor)
+| Role | Email | Password |
+|------|-------|----------|
+| Super Admin | admin@protecther.in | admin123 |
+| PMC Head | pmchead@protecther.com | demo123 |
+| Package Manager | manager.c2@protecther.com | demo123 |
+| Auditor | auditor1@protecther.com | demo123 |
 
 ## Environment Setup
 
 Backend requires `backend/.env` (copy from `.env.example`):
-- DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
-- JWT_SECRET, JWT_EXPIRES_IN
-- CORS_ORIGIN (comma-separated for multiple origins)
-- EMAIL_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (for CAPA notifications)
+```
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=protecther_audit
+DB_USER=postgres
+DB_PASSWORD=your_password
+
+# JWT
+JWT_SECRET=your-secret-key
+JWT_EXPIRES_IN=24h
+
+# CORS (comma-separated for multiple origins)
+CORS_ORIGIN=http://localhost:3000
+
+# Email (for CAPA notifications)
+EMAIL_ENABLED=false
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+SMTP_FROM=PROTECTHER Audit Panel <noreply@protecther.com>
+
+# App
+PORT=5000
+NODE_ENV=development
+APP_URL=http://localhost:3000
+UPLOAD_DIR=./uploads
+MAX_FILE_SIZE=10485760
+```
 
 Frontend uses `VITE_API_URL` env var (defaults to `/api/v1`).
 
@@ -168,8 +361,13 @@ cloudflared tunnel route dns protecther-audit <subdomain>.protecther.in
 
 ## Conventions
 
+- All API routes use `/api/v1/` prefix
 - Protected routes require JWT in `Authorization: Bearer <token>` header
-- Multi-project support: Frontend sends `X-Project-Id` header with requests
-- File uploads stored in `backend/uploads/`
-- Audit categories are seeded (18 categories covering statutory, technical, and safety areas)
+- Multi-project: Frontend sends `X-Project-Id` header with requests
+- File uploads stored in `backend/uploads/` (images, PDFs, docs up to 10MB)
+- Audit categories are seeded (18 categories covering statutory, technical, safety areas)
 - Path aliases: Frontend uses `@/*` for `src/*`, Backend uses `@/*` for `src/*`
+- Passwords hashed with bcryptjs (salt: 12)
+- All delete operations are soft deletes (status='Deleted' or is_active=false)
+- Audit responses auto-save with change history tracking
+- React Query polling: Dashboard 60s, Notifications 30s
