@@ -54,11 +54,11 @@ Completed comprehensive testing using TESTING-CHECKLIST.md and fixed 6 bugs (3 H
 
 ---
 
-## Remaining Bugs (Low Priority)
+## Remaining Bugs (Low Priority) - ALL FIXED 2026-04-02
 
-1. **BUG-008** - Only 9 of 18 categories have checklist items (data issue)
-2. **BUG-010** - CAPA status dropdown missing "Closed" option (has workaround)
-3. **BUG-014** - Settings menu does nothing for non-admin roles
+1. ~~**BUG-008** - Only 9 of 18 categories have checklist items~~ **FIXED** - Created seed-missing-categories.sql
+2. ~~**BUG-010** - CAPA status dropdown missing "Closed" option~~ **FIXED** - Added "Closed" to CAPAList.tsx edit modal
+3. ~~**BUG-014** - Settings menu does nothing for non-admin roles~~ **FIXED** - Hidden in Header.tsx for non-Super Admin
 
 ---
 

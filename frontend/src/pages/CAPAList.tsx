@@ -443,11 +443,13 @@ export function CAPAListPage() {
                             </Button>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="sm"
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50"
                               onClick={() => openCloseDialog(capa)}
                               title="Close CAPA"
                             >
-                              <XCircle className="h-4 w-4 text-compliant" />
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              <span className="hidden sm:inline">Close</span>
                             </Button>
                           </>
                         )}
@@ -539,6 +541,7 @@ export function CAPAListPage() {
                       <SelectContent>
                         <SelectItem value="Open">Open</SelectItem>
                         <SelectItem value="In Progress">In Progress</SelectItem>
+                        <SelectItem value="Closed">Closed</SelectItem>
                       </SelectContent>
                     </Select>
                   ) : (
@@ -624,10 +627,23 @@ export function CAPAListPage() {
             ) : (
               <>
                 <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
-                  Close
+                  Cancel
                 </Button>
                 {selectedCAPA?.status !== 'Closed' && (
-                  <Button onClick={() => setIsEditMode(true)}>Edit</Button>
+                  <>
+                    <Button variant="outline" onClick={() => setIsEditMode(true)}>Edit</Button>
+                    <Button
+                      variant="default"
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => {
+                        setIsDetailOpen(false);
+                        openCloseDialog(selectedCAPA);
+                      }}
+                    >
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Close CAPA
+                    </Button>
+                  </>
                 )}
               </>
             )}
