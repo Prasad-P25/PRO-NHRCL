@@ -26,7 +26,10 @@ import {
   Printer,
   Menu,
   ChevronLeft,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -126,6 +129,17 @@ export function AuditExecutionPage() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
+  // Approve/Reject state
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+
+  // Evidence preview state
+  const [previewEvidence, setPreviewEvidence] = useState<Evidence | null>(null);
+  const user = useAuthStore((state) => state.user);
+  // Check role name - handle both nested role object and direct roleName property
+  const roleName = user?.role?.name || (user as any)?.roleName;
+  const canApprove = roleName === 'Super Admin' || roleName === 'PMC Head';
+
   // Fetch audit details
   const { data: auditData, isLoading: auditLoading, isError: auditError, refetch: refetchAudit } = useQuery({
     queryKey: ['audit', auditId],
@@ -176,12 +190,12 @@ export function AuditExecutionPage() {
     }
   }, [existingResponses]);
 
-  // Expand first category by default
+  // Expand first selected category by default
   useEffect(() => {
-    if (allCategories && allCategories.length > 0 && expandedCategories.length === 0) {
-      setExpandedCategories([allCategories[0].id]);
+    if (auditData?.categories && auditData.categories.length > 0 && expandedCategories.length === 0) {
+      setExpandedCategories([auditData.categories[0].id]);
     }
-  }, [allCategories]);
+  }, [auditData?.categories]);
 
   // Save mutation
   const saveMutation = useMutation({
@@ -209,6 +223,40 @@ export function AuditExecutionPage() {
     },
     onError: (error: any) => {
       const message = error.response?.data?.message || 'Failed to submit audit. Please try again.';
+      alert(message);
+    },
+  });
+
+  // Approve mutation
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      return auditService.approveAudit(auditId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audit', auditId] });
+      queryClient.invalidateQueries({ queryKey: ['audits'] });
+      alert('Audit approved successfully!');
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || 'Failed to approve audit. Please try again.';
+      alert(message);
+    },
+  });
+
+  // Reject mutation
+  const rejectMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      return auditService.rejectAudit(auditId, reason);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audit', auditId] });
+      queryClient.invalidateQueries({ queryKey: ['audits'] });
+      setShowRejectDialog(false);
+      setRejectReason('');
+      alert('Audit rejected and sent back to auditor.');
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || 'Failed to reject audit. Please try again.';
       alert(message);
     },
   });
@@ -312,9 +360,9 @@ export function AuditExecutionPage() {
     );
   }
 
-  // Build categories with their sections and items
+  // Build categories with their sections and items - filter to only selected categories
   const categories: CategoryWithSections[] = (allCategories || [])
-    .filter((cat) => auditData.categories?.some((ac: { id: number }) => ac.id === cat.id) || true) // Show all for now
+    .filter((cat) => auditData.categories?.some((ac: { id: number }) => ac.id === cat.id))
     .map((cat) => {
       const completedCount = cat.sections?.reduce((acc: number, sec: { items?: AuditItem[] }) => {
         return acc + (sec.items?.filter((item: AuditItem) => responses[item.id]?.status !== null).length || 0);
@@ -785,6 +833,57 @@ export function AuditExecutionPage() {
                   <Send className="mr-2 h-4 w-4" />
                 )}
                 Submit for Review
+              </Button>
+            </>
+          )}
+          {/* Approve/Reject buttons for reviewers */}
+          {auditData.status === 'Pending Review' && canApprove && (
+            <>
+              <Button
+                variant="default"
+                size="icon"
+                className="sm:hidden bg-green-600 hover:bg-green-700"
+                onClick={() => approveMutation.mutate()}
+                disabled={approveMutation.isPending}
+                title="Approve"
+              >
+                {approveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="default"
+                className="hidden sm:flex bg-green-600 hover:bg-green-700"
+                onClick={() => approveMutation.mutate()}
+                disabled={approveMutation.isPending}
+              >
+                {approveMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ThumbsUp className="mr-2 h-4 w-4" />
+                )}
+                Approve
+              </Button>
+              <Button
+                variant="destructive"
+                size="icon"
+                className="sm:hidden"
+                onClick={() => setShowRejectDialog(true)}
+                disabled={rejectMutation.isPending}
+                title="Reject"
+              >
+                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsDown className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="destructive"
+                className="hidden sm:flex"
+                onClick={() => setShowRejectDialog(true)}
+                disabled={rejectMutation.isPending}
+              >
+                {rejectMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ThumbsDown className="mr-2 h-4 w-4" />
+                )}
+                Reject
               </Button>
             </>
           )}
@@ -1300,14 +1399,18 @@ export function AuditExecutionPage() {
                           key={ev.id}
                           className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
                         >
-                          <div className="flex items-center gap-2 truncate">
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 truncate hover:text-primary cursor-pointer"
+                            onClick={() => setPreviewEvidence(ev)}
+                          >
                             {ev.fileType.startsWith('image/') ? (
                               <FileImage className="h-4 w-4 text-blue-500" />
                             ) : (
                               <FileText className="h-4 w-4 text-orange-500" />
                             )}
-                            <span className="truncate">{ev.fileName}</span>
-                          </div>
+                            <span className="truncate hover:underline">{ev.fileName}</span>
+                          </button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1394,6 +1497,109 @@ export function AuditExecutionPage() {
             <Button onClick={() => navigate('/audits')}>
               Back to Audits
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Audit Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <ThumbsDown className="h-5 w-5" />
+              Reject Audit
+            </DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this audit. The auditor will be notified and can make corrections.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <Textarea
+              placeholder="Enter rejection reason..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={4}
+              className="w-full"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => rejectMutation.mutate(rejectReason)}
+              disabled={!rejectReason.trim() || rejectMutation.isPending}
+            >
+              {rejectMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ThumbsDown className="mr-2 h-4 w-4" />
+              )}
+              Reject Audit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Evidence Preview Dialog */}
+      <Dialog open={!!previewEvidence} onOpenChange={(open) => !open && setPreviewEvidence(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {previewEvidence?.fileType.startsWith('image/') ? (
+                <FileImage className="h-5 w-5 text-blue-500" />
+              ) : (
+                <FileText className="h-5 w-5 text-orange-500" />
+              )}
+              {previewEvidence?.fileName}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex items-center justify-center overflow-auto max-h-[70vh]">
+            {previewEvidence?.fileType.startsWith('image/') ? (
+              <img
+                src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence.filePath.replace(/\\/g, '/')}`}
+                alt={previewEvidence.fileName}
+                className="max-w-full max-h-[65vh] object-contain rounded-lg"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  target.parentElement!.innerHTML = '<div class="text-center p-8 text-muted-foreground">Failed to load image</div>';
+                }}
+              />
+            ) : (
+              <div className="text-center p-8">
+                <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">Preview not available for this file type</p>
+                <a
+                  href={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence?.filePath.replace(/\\/g, '/')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline mt-2 inline-block"
+                >
+                  Download File
+                </a>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewEvidence(null)}>
+              Close
+            </Button>
+            <a
+              href={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence?.filePath.replace(/\\/g, '/')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button>
+                <FileDown className="mr-2 h-4 w-4" />
+                Download
+              </Button>
+            </a>
           </DialogFooter>
         </DialogContent>
       </Dialog>

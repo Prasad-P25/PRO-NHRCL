@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuthStore } from '@/store/authStore';
 import { useAppStore } from '@/store/appStore';
 import { authService } from '@/services/auth.service';
@@ -25,6 +32,13 @@ export function LoginPage() {
   const { setCurrentProject, setAvailableProjects } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Forgot password state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Helper function to fetch and set default project
   const loadAndSetDefaultProject = async () => {
@@ -66,6 +80,24 @@ export function LoginPage() {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Forgot password handler
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) return;
+
+    setIsResetting(true);
+    setResetError(null);
+
+    try {
+      await authService.forgotPassword(resetEmail);
+      setResetSuccess(true);
+    } catch (err: any) {
+      setResetError(err.response?.data?.message || 'Failed to send reset link. Please try again.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -143,9 +175,18 @@ export function LoginPage() {
                 <input type="checkbox" className="rounded border-gray-300" />
                 Remember me
               </label>
-              <a href="#" className="text-sm text-primary hover:underline">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(true);
+                  setResetSuccess(false);
+                  setResetError(null);
+                  setResetEmail('');
+                }}
+                className="text-sm text-primary hover:underline"
+              >
                 Forgot Password?
-              </a>
+              </button>
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
@@ -176,6 +217,69 @@ export function LoginPage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Enter your email address and we'll send you a link to reset your password.
+            </DialogDescription>
+          </DialogHeader>
+
+          {resetSuccess ? (
+            <div className="space-y-4">
+              <div className="rounded-md bg-green-50 p-4 text-sm text-green-700">
+                Password reset link has been sent to your email. Please check your inbox (and spam folder).
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setResetSuccess(false);
+                }}
+              >
+                Back to Login
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              {resetError && (
+                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                  {resetError}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="reset-email">Email Address</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setShowForgotPassword(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1" disabled={isResetting || !resetEmail}>
+                  {isResetting ? 'Sending...' : 'Send Reset Link'}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

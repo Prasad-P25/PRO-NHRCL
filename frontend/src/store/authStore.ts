@@ -11,24 +11,46 @@ interface AuthState {
   updateUser: (user: Partial<User>) => void;
 }
 
+// Helper to clear app storage on logout
+const clearAppStorage = () => {
+  const appStorage = localStorage.getItem('app-storage');
+  if (appStorage) {
+    try {
+      const parsed = JSON.parse(appStorage);
+      // Clear project-related data but keep sidebar preference
+      parsed.state.currentProject = null;
+      parsed.state.availableProjects = [];
+      localStorage.setItem('app-storage', JSON.stringify(parsed));
+    } catch {
+      // If parsing fails, just remove the entire app storage
+      localStorage.removeItem('app-storage');
+    }
+  }
+};
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
       token: null,
       isAuthenticated: false,
-      setAuth: (user, token) =>
+      setAuth: (user, token) => {
+        // Clear previous user's project data when new user logs in
+        clearAppStorage();
         set({
           user,
           token,
           isAuthenticated: true,
-        }),
-      logout: () =>
+        });
+      },
+      logout: () => {
+        clearAppStorage();
         set({
           user: null,
           token: null,
           isAuthenticated: false,
-        }),
+        });
+      },
       updateUser: (userData) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...userData } : null,

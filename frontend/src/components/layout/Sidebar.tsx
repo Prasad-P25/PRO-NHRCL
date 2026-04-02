@@ -109,9 +109,12 @@ export function Sidebar() {
     );
   };
 
+  // Get role name - handle both nested role object and direct roleName property
+  const userRoleName = user?.role?.name || (user as any)?.roleName || '';
+
   const filteredNavItems = navItems.filter((item) => {
     if (!item.roles) return true;
-    return item.roles.includes(user?.role?.name || '');
+    return item.roles.includes(userRoleName);
   });
 
   if (!sidebarOpen) {

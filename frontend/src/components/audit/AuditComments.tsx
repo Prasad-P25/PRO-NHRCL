@@ -94,7 +94,9 @@ export function AuditComments({ auditId, readOnly = false }: AuditCommentsProps)
   };
 
   const canDeleteComment = (comment: Comment) => {
-    return comment.userId === user?.id || user?.role?.name === 'Super Admin';
+    // Handle both nested role object and direct roleName property
+    const roleName = user?.role?.name || (user as any)?.roleName;
+    return comment.userId === user?.id || roleName === 'Super Admin';
   };
 
   return (

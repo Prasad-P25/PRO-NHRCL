@@ -45,6 +45,14 @@ export class CAPAController {
         params.push(packageId);
       }
 
+      // Package filter based on user role - Package Managers can only see their own package
+      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head') {
+        if (req.user!.packageId) {
+          query += ` AND a.package_id = $${paramIndex++}`;
+          params.push(req.user!.packageId);
+        }
+      }
+
       // Get total count
       const countResult = await db.query(
         query.replace('SELECT c.*, ar.status as response_status, ai.audit_point,', 'SELECT COUNT(*)').replace('a.audit_number, p.code as package_code, p.name as package_name', ''),
@@ -277,7 +285,14 @@ export class CAPAController {
   getAnalytics = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const projectId = req.projectId;
-      const projectFilter = projectId ? `AND p.project_id = ${projectId}` : '';
+      let projectFilter = projectId ? `AND p.project_id = ${projectId}` : '';
+
+      // Package filter based on user role - Package Managers can only see their own package
+      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head') {
+        if (req.user!.packageId) {
+          projectFilter += ` AND a.package_id = ${req.user!.packageId}`;
+        }
+      }
 
       // Status breakdown
       const statusResult = await db.query(`
@@ -342,7 +357,7 @@ export class CAPAController {
       // Average closure time
       const closureTimeResult = await db.query(`
         SELECT
-          AVG(EXTRACT(DAY FROM (c.closed_date - c.created_at::date))) as avg_closure_days
+          AVG(c.closed_date::date - c.created_at::date) as avg_closure_days
         FROM capa c
         JOIN audit_responses ar ON c.response_id = ar.id
         JOIN audits a ON ar.audit_id = a.id

@@ -185,6 +185,93 @@ export function KPIDashboardPage() {
           </div>
         </div>
 
+        {/* LTIFR & TRIFR Key Metrics */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* LTIFR Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">LTIFR</CardTitle>
+              <Badge variant="outline" className="text-xs">Lagging</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">
+                {(() => {
+                  const ltifr = summaryData?.data?.find((k: any) => k.name.includes('LTIFR'));
+                  return ltifr?.actualValue ?? '-';
+                })()}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Lost Time Injury Frequency Rate
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Benchmark: {summaryData?.data?.find((k: any) => k.name.includes('LTIFR'))?.benchmarkValue ?? '0.50'}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* TRIFR Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">TRIFR</CardTitle>
+              <Badge variant="outline" className="text-xs">Lagging</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">
+                {(() => {
+                  const trifr = summaryData?.data?.find((k: any) => k.name.includes('TRIFR'));
+                  return trifr?.actualValue ?? '-';
+                })()}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Total Recordable Injury Frequency Rate
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Benchmark: {summaryData?.data?.find((k: any) => k.name.includes('TRIFR'))?.benchmarkValue ?? '1.00'}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Days Without LTI Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Days Without LTI</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-green-600">
+                {(() => {
+                  const daysLti = summaryData?.data?.find((k: any) => k.name.includes('Days Without'));
+                  return daysLti?.actualValue ?? '0';
+                })()}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Consecutive days without lost time injury
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Man-hours Worked Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Man-hours</CardTitle>
+              <Activity className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">
+                {(() => {
+                  const manHours = summaryData?.data?.find((k: any) => k.name.includes('Man-hours'));
+                  const value = manHours?.actualValue;
+                  if (value === null || value === undefined) return '-';
+                  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value;
+                })()}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Total man-hours worked this month
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Overall Score & Alerts */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
