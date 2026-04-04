@@ -40,7 +40,7 @@ timeout /t 5 /nobreak >nul
 
 :: Start Cloudflare Tunnel
 echo Starting Cloudflare Tunnel...
-start "PROTECTHER Tunnel" cmd /k "C:\Users\IT\Downloads\cloudflared.exe tunnel run protecther-audit"
+start "PROTECTHER Tunnel" cmd /k "C:\Users\IT\Downloads\cloudflared.exe tunnel run mahsr-safety"
 
 echo.
 echo ========================================
