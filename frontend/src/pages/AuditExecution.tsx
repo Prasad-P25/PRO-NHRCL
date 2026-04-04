@@ -25,7 +25,6 @@ import {
   CheckCircle2,
   Printer,
   Menu,
-  ChevronLeft,
   ThumbsUp,
   ThumbsDown,
 } from 'lucide-react';

@@ -41,7 +41,7 @@ export async function checkCapaReminders() {
           entityType: 'capa',
           entityId: capa.id,
           actionUrl: `/capa?id=${capa.id}`,
-          priority: 'urgent',
+          priority: 'high',
         }
       );
 
