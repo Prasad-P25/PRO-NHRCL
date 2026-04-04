@@ -310,8 +310,13 @@ export class KPIController {
     try {
       const currentMonth = new Date().getMonth() + 1;
       const currentYear = new Date().getFullYear();
+      const projectId = req.projectId;
 
-      // Get aggregated KPI data for current month across all packages
+      // Get aggregated KPI data for current month, filtered by project
+      const projectFilter = projectId
+        ? `LEFT JOIN packages p ON ke.package_id = p.id AND p.project_id = ${projectId}`
+        : 'LEFT JOIN packages p ON ke.package_id = p.id';
+
       const result = await db.query(`
         SELECT
           ki.id as indicator_id,
@@ -326,6 +331,8 @@ export class KPIController {
         LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
           AND ke.period_month = $1
           AND ke.period_year = $2
+        ${projectFilter}
+        ${projectId ? `WHERE p.project_id = ${projectId} OR ke.id IS NULL` : ''}
         GROUP BY ki.id, ki.name, ki.type, ki.unit, ki.benchmark_value, ki.display_order
         ORDER BY ki.type, ki.display_order
       `, [currentMonth, currentYear]);
