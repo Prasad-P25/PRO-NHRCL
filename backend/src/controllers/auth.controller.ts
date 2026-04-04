@@ -8,6 +8,7 @@ import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
 import { tokenBlacklist } from '../utils/tokenBlacklist';
 import { logger } from '../utils/logger';
+import { emailService } from '../services/email.service';
 
 export class AuthController {
   login = async (req: Request, res: Response, next: NextFunction) => {
@@ -168,13 +169,15 @@ export class AuthController {
           [resetTokenHash, resetTokenExpires, user.id]
         );
 
-        // Log the reset token (in production, send via email)
-        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
-        logger.info(`Password reset requested for ${email}. Reset URL: ${resetUrl}`);
+        // Generate reset URL
+        const resetUrl = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+        logger.info(`Password reset requested for ${email}`);
 
-        // TODO: Send email with reset link
-        // For now, log it. In production, use email service:
-        // await emailService.sendPasswordResetEmail(email, user.name, resetUrl);
+        // Send password reset email
+        await emailService.sendPasswordReset(email, {
+          name: user.name,
+          resetUrl,
+        });
       }
 
       // Always return success to prevent email enumeration

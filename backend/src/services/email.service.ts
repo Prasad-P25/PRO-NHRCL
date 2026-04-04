@@ -153,6 +153,39 @@ const templates = {
       </div>
     `,
   }),
+
+  passwordReset: (data: { name: string; resetUrl: string }) => ({
+    subject: `Password Reset Request - PROTECTHER Audit Panel`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #3B82F6; color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0;">PROTECTHER Audit Panel</h1>
+        </div>
+        <div style="padding: 20px; background-color: #f9fafb;">
+          <h2 style="color: #1f2937;">Password Reset Request</h2>
+          <p>Hello ${data.name},</p>
+          <p>We received a request to reset your password. Click the button below to create a new password:</p>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${data.resetUrl}" style="display: inline-block; background-color: #3B82F6; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+              Reset Password
+            </a>
+          </div>
+
+          <div style="background-color: #FEF3C7; padding: 15px; border-radius: 8px; border-left: 4px solid #F59E0B; margin: 20px 0;">
+            <p style="margin: 0; color: #92400E;"><strong>This link will expire in 1 hour.</strong></p>
+            <p style="margin: 5px 0 0 0; color: #92400E;">If you didn't request this password reset, you can safely ignore this email.</p>
+          </div>
+
+          <p style="color: #6b7280; font-size: 14px;">If the button doesn't work, copy and paste this link into your browser:</p>
+          <p style="color: #3B82F6; font-size: 12px; word-break: break-all;">${data.resetUrl}</p>
+        </div>
+        <div style="padding: 15px; text-align: center; color: #6b7280; font-size: 12px;">
+          <p>This is an automated message from PROTECTHER Audit Panel.</p>
+        </div>
+      </div>
+    `,
+  }),
 };
 
 // Email service functions
@@ -200,6 +233,11 @@ export const emailService = {
 
   async sendCapaCompleted(to: string, data: Parameters<typeof templates.capaCompleted>[0]): Promise<boolean> {
     const { subject, html } = templates.capaCompleted(data);
+    return this.sendEmail(to, subject, html);
+  },
+
+  async sendPasswordReset(to: string, data: Parameters<typeof templates.passwordReset>[0]): Promise<boolean> {
+    const { subject, html } = templates.passwordReset(data);
     return this.sendEmail(to, subject, html);
   },
 
