@@ -12,16 +12,30 @@ timeout /t 10 /nobreak >nul
 :: Start PostgreSQL if not running (optional - uncomment if needed)
 :: net start postgresql-x64-14
 
-:: Start Backend
-echo Starting Backend Server...
+:: Build and Start Backend
+echo Building Backend...
 cd /d C:\PROJECTS\PRO-NHRCL\backend
-start "PROTECTHER Backend" cmd /k "npm run dev"
+call npm run build
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Backend build failed!
+    pause
+    exit /b 1
+)
+echo Starting Backend Server...
+start "PROTECTHER Backend" cmd /k "npm start"
 timeout /t 5 /nobreak >nul
 
-:: Start Frontend
-echo Starting Frontend Server...
+:: Build and Start Frontend
+echo Building Frontend...
 cd /d C:\PROJECTS\PRO-NHRCL\frontend
-start "PROTECTHER Frontend" cmd /k "npx vite --host"
+call npm run build
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Frontend build failed!
+    pause
+    exit /b 1
+)
+echo Starting Frontend Server...
+start "PROTECTHER Frontend" cmd /k "npx serve dist -l 3000"
 timeout /t 5 /nobreak >nul
 
 :: Start Cloudflare Tunnel
