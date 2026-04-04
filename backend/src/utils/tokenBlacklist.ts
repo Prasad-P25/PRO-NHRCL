@@ -50,6 +50,11 @@ class TokenBlacklist {
   size(): number {
     return this.blacklist.size;
   }
+
+  // Clear all tokens (for testing)
+  clear(): void {
+    this.blacklist.clear();
+  }
 }
 
 // Singleton instance
