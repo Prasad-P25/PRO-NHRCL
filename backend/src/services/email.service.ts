@@ -9,7 +9,7 @@ const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_FROM = process.env.SMTP_FROM || 'PROTECTHER Audit Panel <noreply@protecther.com>';
 const EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
 
-// Create transporter
+// Create transporter with timeout settings
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
@@ -18,7 +18,18 @@ const transporter = nodemailer.createTransport({
     user: SMTP_USER,
     pass: SMTP_PASS,
   },
+  connectionTimeout: 10000, // 10 second connection timeout
+  greetingTimeout: 10000, // 10 second greeting timeout
+  socketTimeout: 30000, // 30 second socket timeout
 });
+
+// Helper to add timeout to any promise
+const withTimeout = <T>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(errorMessage)), ms);
+  });
+  return Promise.race([promise, timeout]);
+};
 
 // Email templates
 const templates = {
@@ -202,12 +213,17 @@ export const emailService = {
     }
 
     try {
-      await transporter.sendMail({
-        from: SMTP_FROM,
-        to,
-        subject,
-        html,
-      });
+      // Wrap email sending with 30 second timeout to prevent hanging
+      await withTimeout(
+        transporter.sendMail({
+          from: SMTP_FROM,
+          to,
+          subject,
+          html,
+        }),
+        30000,
+        `Email send timeout after 30s to ${to}`
+      );
       logger.info(`Email sent to ${to}: ${subject}`);
       return true;
     } catch (error) {

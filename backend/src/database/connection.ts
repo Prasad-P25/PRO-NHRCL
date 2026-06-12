@@ -9,9 +9,11 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'protecther_audit',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
-  max: 20,
+  max: 50, // Increased from 20 for better concurrency
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000, // Increased from 2s to 5s
+  statement_timeout: 30000, // 30 second query timeout to prevent hanging queries
+  query_timeout: 30000, // 30 second query timeout
 });
 
 pool.on('error', (err) => {

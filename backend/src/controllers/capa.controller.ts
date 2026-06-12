@@ -152,11 +152,12 @@ export class CAPAController {
       if (auditInfo.rows.length > 0) {
         const { audit_number, package_id, package_code } = auditInfo.rows[0];
 
-        // Notify package managers (in-app + email)
+        // Notify package managers (in-app + email) - run in parallel to prevent timeout
         const managers = await getPackageManagersWithEmail(package_id);
-        for (const manager of managers) {
-          // In-app notification
-          await createNotification(
+
+        // Create all notifications in parallel
+        const notificationPromises = managers.map(manager =>
+          createNotification(
             manager.id,
             'capa_assigned',
             'New CAPA Created',
@@ -168,18 +169,25 @@ export class CAPAController {
               actionUrl: `/capa?id=${result.rows[0].id}`,
               priority: 'high',
             }
-          );
+          ).catch(err => console.error('Failed to create notification:', err))
+        );
 
-          // Send email notification
-          await emailService.sendCapaCreated(manager.email, {
+        // Send all emails in parallel (non-blocking)
+        const emailPromises = managers.map(manager =>
+          emailService.sendCapaCreated(manager.email, {
             capaNumber,
             auditNumber: audit_number,
             finding: findingDescription.substring(0, 200) + (findingDescription.length > 200 ? '...' : ''),
             assigneeName: manager.name,
             dueDate: targetDate ? format(new Date(targetDate), 'PPP') : 'Not set',
             link: `${APP_URL}/capa?id=${result.rows[0].id}`,
-          });
-        }
+          }).catch(err => console.error('Failed to send CAPA email:', err))
+        );
+
+        // Wait for notifications but don't block on emails
+        await Promise.all(notificationPromises);
+        // Fire-and-forget emails to prevent timeout
+        Promise.all(emailPromises).catch(() => {});
       }
 
       res.status(201).json({
@@ -461,25 +469,27 @@ export class CAPAController {
         [req.user!.id, verificationRemarks || null, id]
       );
 
-      // Notify the auditor that CAPA was verified (in-app + email)
+      // Notify the auditor that CAPA was verified (in-app + email) - non-blocking
       if (capaResult.rows.length > 0) {
         const { capa_number, finding_description, auditor_id, package_id } = capaResult.rows[0];
 
-        // Send email to package managers
-        const managers = await getPackageManagersWithEmail(package_id);
-        for (const manager of managers) {
-          await emailService.sendCapaCompleted(manager.email, {
-            capaNumber: capa_number,
-            finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
-            completedBy: req.user?.name || 'Verifier',
-            completedDate: format(new Date(), 'PPP'),
-            link: `${APP_URL}/capa?id=${id}`,
-          });
-        }
+        // Send emails to package managers in parallel (non-blocking)
+        getPackageManagersWithEmail(package_id).then(managers => {
+          const emailPromises = managers.map(manager =>
+            emailService.sendCapaCompleted(manager.email, {
+              capaNumber: capa_number,
+              finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
+              completedBy: req.user?.name || 'Verifier',
+              completedDate: format(new Date(), 'PPP'),
+              link: `${APP_URL}/capa?id=${id}`,
+            }).catch(err => console.error('Failed to send CAPA completed email:', err))
+          );
+          return Promise.all(emailPromises);
+        }).catch(err => console.error('Failed to get managers for email:', err));
 
-        // In-app notification to auditor
+        // In-app notification to auditor (non-blocking)
         if (auditor_id && auditor_id !== req.user!.id) {
-          await createNotification(
+          createNotification(
             auditor_id,
             'capa_verified',
             'CAPA Verified & Closed',
@@ -490,19 +500,20 @@ export class CAPAController {
               entityId: parseInt(id),
               actionUrl: `/capa?id=${id}`,
             }
-          );
+          ).catch(err => console.error('Failed to create notification:', err));
 
-          // Send email to auditor
-          const auditorInfo = await getUserEmail(auditor_id);
-          if (auditorInfo) {
-            await emailService.sendCapaCompleted(auditorInfo.email, {
-              capaNumber: capa_number,
-              finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
-              completedBy: req.user?.name || 'Verifier',
-              completedDate: format(new Date(), 'PPP'),
-              link: `${APP_URL}/capa?id=${id}`,
-            });
-          }
+          // Send email to auditor (non-blocking)
+          getUserEmail(auditor_id).then(auditorInfo => {
+            if (auditorInfo) {
+              emailService.sendCapaCompleted(auditorInfo.email, {
+                capaNumber: capa_number,
+                finding: finding_description?.substring(0, 200) + (finding_description?.length > 200 ? '...' : ''),
+                completedBy: req.user?.name || 'Verifier',
+                completedDate: format(new Date(), 'PPP'),
+                link: `${APP_URL}/capa?id=${id}`,
+              }).catch(err => console.error('Failed to send auditor email:', err));
+            }
+          }).catch(err => console.error('Failed to get auditor email:', err));
         }
       }
 

@@ -173,11 +173,11 @@ export class AuthController {
         const resetUrl = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
         logger.info(`Password reset requested for ${email}`);
 
-        // Send password reset email
-        await emailService.sendPasswordReset(email, {
+        // Send password reset email (non-blocking to prevent timeout)
+        emailService.sendPasswordReset(email, {
           name: user.name,
           resetUrl,
-        });
+        }).catch(err => logger.error('Failed to send password reset email:', err));
       }
 
       // Always return success to prevent email enumeration

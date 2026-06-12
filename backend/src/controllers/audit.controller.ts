@@ -82,21 +82,39 @@ export class AuditController {
         params.push(auditorId);
       }
 
-      // Get total count - build a separate count query
-      const countQuery = `
+      // Get total count - use parameterized query for security and reliability
+      let countQuery = `
         SELECT COUNT(*) as count
         FROM audits a
         JOIN packages p ON a.package_id = p.id
         LEFT JOIN users u ON a.auditor_id = u.id
         WHERE 1=1
-        ${projectId ? `AND p.project_id = ${projectId}` : ''}
-        ${req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head' && req.user!.packageId
-          ? `AND a.package_id = ${req.user!.packageId}` : ''}
-        ${packageId ? `AND a.package_id = ${packageId}` : ''}
-        ${status ? `AND a.status = '${status}'` : ''}
-        ${auditorId ? `AND a.auditor_id = ${auditorId}` : ''}
       `;
-      const countResult = await db.query(countQuery);
+      const countParams: any[] = [];
+      let countParamIndex = 1;
+
+      if (projectId) {
+        countQuery += ` AND p.project_id = $${countParamIndex++}`;
+        countParams.push(projectId);
+      }
+      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head' && req.user!.packageId) {
+        countQuery += ` AND a.package_id = $${countParamIndex++}`;
+        countParams.push(req.user!.packageId);
+      }
+      if (packageId) {
+        countQuery += ` AND a.package_id = $${countParamIndex++}`;
+        countParams.push(packageId);
+      }
+      if (status) {
+        countQuery += ` AND a.status = $${countParamIndex++}`;
+        countParams.push(status);
+      }
+      if (auditorId) {
+        countQuery += ` AND a.auditor_id = $${countParamIndex++}`;
+        countParams.push(auditorId);
+      }
+
+      const countResult = await db.query(countQuery, countParams);
       const total = parseInt(countResult.rows[0]?.count || '0');
 
       // Add pagination
@@ -415,33 +433,52 @@ export class AuditController {
       logger.info(`Audit ${id}: Query returned ${capaRequiredResponses.rows.length} eligible for CAPA creation`);
 
       let capasCreated = 0;
-      for (const response of capaRequiredResponses.rows) {
-        // Generate CAPA number
-        const year = new Date().getFullYear();
-        const countResult = await db.query(
-          `SELECT COUNT(*) FROM capa WHERE capa_number LIKE $1`,
-          [`CAPA-${year}-%`]
-        );
-        const nextNum = parseInt(countResult.rows[0].count) + 1;
-        const capaNumber = `CAPA-${year}-${String(nextNum).padStart(3, '0')}`;
+      const year = new Date().getFullYear();
 
-        // Create CAPA
-        await db.query(
-          `INSERT INTO capa (capa_number, response_id, finding_description, status)
-           VALUES ($1, $2, $3, 'Open')`,
-          [capaNumber, response.response_id, response.observation || response.audit_point]
-        );
-        capasCreated++;
+      // Get current count once for all CAPAs to avoid race conditions
+      const countResult = await db.query(
+        `SELECT COUNT(*) FROM capa WHERE capa_number LIKE $1`,
+        [`CAPA-${year}-%`]
+      );
+      let baseCount = parseInt(countResult.rows[0].count);
+
+      // Batch create CAPAs if there are any
+      if (capaRequiredResponses.rows.length > 0) {
+        const capaValues: any[] = [];
+        const capaParams: string[] = [];
+        let paramIndex = 1;
+
+        for (const response of capaRequiredResponses.rows) {
+          baseCount++;
+          const capaNumber = `CAPA-${year}-${String(baseCount).padStart(3, '0')}`;
+          capaValues.push(capaNumber, response.response_id, response.observation || response.audit_point);
+          capaParams.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, 'Open')`);
+        }
+
+        // Single batch INSERT instead of multiple queries
+        if (capaParams.length > 0) {
+          await db.query(
+            `INSERT INTO capa (capa_number, response_id, finding_description, status)
+             VALUES ${capaParams.join(', ')}`,
+            capaValues
+          );
+          capasCreated = capaRequiredResponses.rows.length;
+        }
       }
 
-      // Notify PMC Heads and Package Managers
+      // Notify PMC Heads and Package Managers (parallel, non-blocking)
       if (auditResult.rows.length > 0) {
         const { audit_number, package_id, package_code } = auditResult.rows[0];
 
-        // Notify PMC Heads
-        const pmcHeads = await getUsersByRole('PMC Head');
-        for (const userId of pmcHeads) {
-          await createNotification(
+        // Get all recipients in parallel
+        const [pmcHeads, managers] = await Promise.all([
+          getUsersByRole('PMC Head'),
+          getPackageManagers(package_id)
+        ]);
+
+        // Create all notifications in parallel (non-blocking)
+        const pmcNotifications = pmcHeads.map(userId =>
+          createNotification(
             userId,
             'audit_submitted',
             'Audit Submitted for Review',
@@ -452,13 +489,11 @@ export class AuditController {
               entityId: parseInt(id),
               actionUrl: `/audits/${id}`,
             }
-          );
-        }
+          ).catch(err => logger.error('Failed to create PMC notification:', err))
+        );
 
-        // Notify Package Managers
-        const managers = await getPackageManagers(package_id);
-        for (const managerId of managers) {
-          await createNotification(
+        const managerNotifications = managers.map(managerId =>
+          createNotification(
             managerId,
             'audit_submitted',
             'Audit Submitted for Review',
@@ -469,8 +504,11 @@ export class AuditController {
               entityId: parseInt(id),
               actionUrl: `/audits/${id}`,
             }
-          );
-        }
+          ).catch(err => logger.error('Failed to create manager notification:', err))
+        );
+
+        // Fire-and-forget all notifications to prevent timeout
+        Promise.all([...pmcNotifications, ...managerNotifications]).catch(() => {});
       }
 
       res.json({

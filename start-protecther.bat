@@ -35,7 +35,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo Starting Frontend Server...
-start "PROTECTHER Frontend" cmd /k "npx serve dist -l 3000"
+start "PROTECTHER Frontend" cmd /k "npx serve dist -l 3000 -s"
 timeout /t 5 /nobreak >nul
 
 :: Start Cloudflare Tunnel

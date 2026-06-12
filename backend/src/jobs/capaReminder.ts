@@ -29,10 +29,9 @@ export async function checkCapaReminders() {
       AND pm.is_active = true
     `);
 
-    // Send overdue notifications
-    for (const capa of overdueResult.rows) {
-      // In-app notification
-      await createNotification(
+    // Send overdue notifications in parallel
+    const overduePromises = overdueResult.rows.map(capa => {
+      const notificationPromise = createNotification(
         capa.manager_id,
         'capa_overdue',
         'CAPA Overdue',
@@ -43,17 +42,20 @@ export async function checkCapaReminders() {
           actionUrl: `/capa?id=${capa.id}`,
           priority: 'high',
         }
-      );
+      ).catch(err => logger.error('Failed to create overdue notification:', err));
 
-      // Email notification
-      await emailService.sendCapaOverdue(capa.manager_email, {
+      const emailPromise = emailService.sendCapaOverdue(capa.manager_email, {
         capaNumber: capa.capa_number,
         finding: capa.finding_description?.substring(0, 200) + (capa.finding_description?.length > 200 ? '...' : ''),
         dueDate: format(new Date(capa.target_date), 'PPP'),
         daysOverdue: parseInt(capa.days_overdue),
         link: `${APP_URL}/capa?id=${capa.id}`,
-      });
-    }
+      }).catch(err => logger.error('Failed to send overdue email:', err));
+
+      return Promise.all([notificationPromise, emailPromise]);
+    });
+
+    await Promise.all(overduePromises);
 
     // Get CAPAs due within 3 days (not closed, target date within 3 days)
     const dueSoonResult = await db.query(`
@@ -74,10 +76,9 @@ export async function checkCapaReminders() {
       AND pm.is_active = true
     `);
 
-    // Send due-soon notifications
-    for (const capa of dueSoonResult.rows) {
-      // In-app notification
-      await createNotification(
+    // Send due-soon notifications in parallel
+    const dueSoonPromises = dueSoonResult.rows.map(capa => {
+      const notificationPromise = createNotification(
         capa.manager_id,
         'capa_due_soon',
         'CAPA Due Soon',
@@ -88,17 +89,20 @@ export async function checkCapaReminders() {
           actionUrl: `/capa?id=${capa.id}`,
           priority: 'high',
         }
-      );
+      ).catch(err => logger.error('Failed to create due-soon notification:', err));
 
-      // Email notification
-      await emailService.sendCapaDueSoon(capa.manager_email, {
+      const emailPromise = emailService.sendCapaDueSoon(capa.manager_email, {
         capaNumber: capa.capa_number,
         finding: capa.finding_description?.substring(0, 200) + (capa.finding_description?.length > 200 ? '...' : ''),
         dueDate: format(new Date(capa.target_date), 'PPP'),
         daysLeft: parseInt(capa.days_left),
         link: `${APP_URL}/capa?id=${capa.id}`,
-      });
-    }
+      }).catch(err => logger.error('Failed to send due-soon email:', err));
+
+      return Promise.all([notificationPromise, emailPromise]);
+    });
+
+    await Promise.all(dueSoonPromises);
 
     logger.info(`CAPA reminder check complete. Overdue: ${overdueResult.rowCount}, Due soon: ${dueSoonResult.rowCount}`);
   } catch (error) {
