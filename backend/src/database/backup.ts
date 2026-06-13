@@ -31,7 +31,9 @@ export async function createBackup(format: 'sql' | 'compressed' = 'sql'): Promis
   const filename = `${process.env.DB_NAME}_${timestamp}${extension}`;
   const filepath = path.join(BACKUP_DIR, filename);
 
-  const formatFlag = format === 'compressed' ? '-F c' : '-F p';
+  // Plain SQL dumps include --clean --if-exists so they restore cleanly over an
+  // existing database. Compressed dumps get the same effect via pg_restore -c.
+  const formatFlag = format === 'compressed' ? '-F c' : '-F p --clean --if-exists';
 
   const command = `${PG_DUMP} -h ${process.env.DB_HOST} -p ${process.env.DB_PORT} -U ${process.env.DB_USER} -d ${process.env.DB_NAME} ${formatFlag} -f "${filepath}"`;
 

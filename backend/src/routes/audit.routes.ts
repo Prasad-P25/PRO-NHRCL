@@ -5,9 +5,13 @@ import { authenticate, authorize } from '../middleware/auth';
 import { uploadLimiter } from '../middleware/rateLimiter';
 import multer from 'multer';
 import path from 'path';
+import crypto from 'crypto';
 
 const router = Router();
 const auditController = new AuditController();
+
+// Roles allowed to create/modify audits and responses
+const auditWriteRoles = ['Super Admin', 'PMC Head', 'Package Manager', 'Auditor'] as const;
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -15,7 +19,8 @@ const storage = multer.diskStorage({
     cb(null, process.env.UPLOAD_DIR || './uploads');
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    // Unguessable filename: uploads are served statically without auth
+    const uniqueSuffix = crypto.randomBytes(16).toString('hex');
     cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
@@ -43,6 +48,7 @@ router.get('/', auditController.getAllAudits);
 
 router.post(
   '/',
+  authorize(...auditWriteRoles),
   [
     body('packageId').isInt().withMessage('Package ID is required'),
     body('auditType').isIn(['Full', 'Partial', 'Focused']).withMessage('Invalid audit type'),
@@ -57,12 +63,12 @@ router.get('/:id/export-word', auditController.exportToWord);
 
 router.get('/:id/export-nc-report', auditController.exportNCReport);
 
-router.put('/:id', auditController.updateAudit);
+router.put('/:id', authorize(...auditWriteRoles), auditController.updateAudit);
 
-router.delete('/:id', auditController.deleteAudit);
+router.delete('/:id', authorize(...auditWriteRoles), auditController.deleteAudit);
 
 // Audit workflow
-router.post('/:id/submit', auditController.submitAudit);
+router.post('/:id/submit', authorize(...auditWriteRoles), auditController.submitAudit);
 
 router.post(
   '/:id/approve',
@@ -79,7 +85,7 @@ router.post(
 // Audit responses
 router.get('/:id/responses', auditController.getAuditResponses);
 
-router.post('/:id/responses', auditController.saveAuditResponses);
+router.post('/:id/responses', authorize(...auditWriteRoles), auditController.saveAuditResponses);
 
 // Audit history (change log)
 router.get('/:id/history', auditController.getAuditHistory);
@@ -93,14 +99,20 @@ router.delete('/:id/comments/:commentId', auditController.deleteAuditComment);
 router.get('/:id/attachments', auditController.getAuditAttachments);
 router.post(
   '/:id/attachments',
+  authorize(...auditWriteRoles),
   upload.single('file'),
   auditController.uploadAuditAttachment
 );
-router.delete('/:id/attachments/:attachmentId', auditController.deleteAuditAttachment);
+router.delete(
+  '/:id/attachments/:attachmentId',
+  authorize(...auditWriteRoles),
+  auditController.deleteAuditAttachment
+);
 
 // Evidence upload - rate limited (10 uploads per minute)
 router.post(
   '/responses/:responseId/evidence',
+  authorize(...auditWriteRoles),
   uploadLimiter,
   upload.single('file'),
   auditController.uploadEvidence
@@ -108,6 +120,7 @@ router.post(
 
 router.delete(
   '/responses/:responseId/evidence/:evidenceId',
+  authorize(...auditWriteRoles),
   auditController.deleteEvidence
 );
 

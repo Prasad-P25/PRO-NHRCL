@@ -9,6 +9,7 @@ import { AuthRequest } from '../middleware/auth';
 import { tokenBlacklist } from '../utils/tokenBlacklist';
 import { logger } from '../utils/logger';
 import { emailService } from '../services/email.service';
+import { getJwtSecret } from '../config/jwt';
 
 export class AuthController {
   login = async (req: Request, res: Response, next: NextFunction) => {
@@ -52,7 +53,7 @@ export class AuthController {
 
       const token = jwt.sign(
         { userId: user.id },
-        process.env.JWT_SECRET || 'default-secret',
+        getJwtSecret(),
         { expiresIn: (process.env.JWT_EXPIRES_IN || '24h') as jwt.SignOptions['expiresIn'] }
       );
 
@@ -118,18 +119,35 @@ export class AuthController {
         throw new AppError('Token has been revoked', 401);
       }
 
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'default-secret',
-        { ignoreExpiration: true }
-      ) as { userId: number };
+      // Expired tokens cannot be refreshed — the user must log in again
+      const decoded = jwt.verify(token, getJwtSecret()) as {
+        userId: number;
+        iat?: number;
+      };
+
+      // Re-validate the user before issuing a fresh token
+      const userResult = await db.query(
+        'SELECT id, is_active, password_changed_at FROM users WHERE id = $1',
+        [decoded.userId]
+      );
+      if (userResult.rows.length === 0 || !userResult.rows[0].is_active) {
+        throw new AppError('User not found or inactive', 401);
+      }
+      const refreshUser = userResult.rows[0];
+      if (
+        refreshUser.password_changed_at &&
+        decoded.iat &&
+        decoded.iat * 1000 < new Date(refreshUser.password_changed_at).getTime()
+      ) {
+        throw new AppError('Token invalidated by password change', 401);
+      }
 
       // Blacklist the old token
       tokenBlacklist.add(token, 24 * 60 * 60 * 1000);
 
       const newToken = jwt.sign(
         { userId: decoded.userId },
-        process.env.JWT_SECRET || 'default-secret',
+        getJwtSecret(),
         { expiresIn: (process.env.JWT_EXPIRES_IN || '24h') as jwt.SignOptions['expiresIn'] }
       );
 
@@ -223,7 +241,8 @@ export class AuthController {
       // Update password and clear reset token
       await db.query(
         `UPDATE users
-         SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL, updated_at = CURRENT_TIMESTAMP
+         SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL,
+             password_changed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
         [passwordHash, user.id]
       );

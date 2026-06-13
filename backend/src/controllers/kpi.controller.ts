@@ -3,6 +3,28 @@ import { validationResult } from 'express-validator';
 import { db } from '../database/connection';
 import { AuthRequest } from '../middleware/auth';
 
+// LTIFR/TRIFR are rate indicators whose actual value must be derived server-side:
+// rate = (incidents x 1,000,000) / man-hours worked
+const RATE_INDICATOR_PATTERN = /LTIFR|TRIFR/i;
+const RATE_INDICATOR_SQL = `(ki.name ILIKE '%LTIFR%' OR ki.name ILIKE '%TRIFR%')`;
+
+// Aggregate expression for actual values: rate indicators must be aggregated as
+// SUM(incidents) * 1e6 / SUM(man-hours), not as an unweighted AVG of per-package rates.
+const ACTUAL_AGGREGATE_SQL = `
+          CASE
+            WHEN ${RATE_INDICATOR_SQL}
+              THEN COALESCE(SUM(ke.incidents_count) * 1000000.0 / NULLIF(SUM(ke.man_hours_worked), 0), AVG(ke.actual_value))
+            ELSE AVG(ke.actual_value)
+          END`;
+
+function computeRateActual(incidentsCount: any, manHoursWorked: any): number | null {
+  const incidents = Number(incidentsCount);
+  const manHours = Number(manHoursWorked);
+  if (incidentsCount === null || incidentsCount === undefined) return null;
+  if (!Number.isFinite(incidents) || !Number.isFinite(manHours) || manHours <= 0) return null;
+  return Math.round((incidents * 1000000 / manHours) * 100) / 100;
+}
+
 export class KPIController {
   getIndicators = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -137,6 +159,18 @@ export class KPIController {
         remarks,
       } = req.body;
 
+      // For rate indicators (LTIFR/TRIFR) compute the actual value server-side
+      // instead of trusting the user-entered value
+      let resolvedActualValue = actualValue ?? null;
+      const indicatorResult = await db.query('SELECT name FROM kpi_indicators WHERE id = $1', [indicatorId]);
+      const indicatorName = indicatorResult.rows[0]?.name || '';
+      if (RATE_INDICATOR_PATTERN.test(indicatorName)) {
+        const computed = computeRateActual(incidentsCount, manHoursWorked);
+        if (computed !== null) {
+          resolvedActualValue = computed;
+        }
+      }
+
       const result = await db.query(
         `INSERT INTO kpi_entries (package_id, indicator_id, period_month, period_year,
          target_value, actual_value, man_hours_worked, incidents_count, remarks, entered_by)
@@ -154,10 +188,10 @@ export class KPIController {
           indicatorId,
           periodMonth,
           periodYear,
-          targetValue || null,
-          actualValue || null,
-          manHoursWorked || null,
-          incidentsCount || null,
+          targetValue ?? null,
+          resolvedActualValue,
+          manHoursWorked ?? null,
+          incidentsCount ?? null,
           remarks || null,
           req.user!.id,
         ]
@@ -188,6 +222,20 @@ export class KPIController {
         [targetValue, actualValue, manHoursWorked, incidentsCount, remarks, id]
       );
 
+      // For rate indicators (LTIFR/TRIFR) recompute the actual value from the
+      // stored incidents and man-hours after the partial update
+      await db.query(
+        `UPDATE kpi_entries ke
+         SET actual_value = ROUND(ke.incidents_count * 1000000.0 / NULLIF(ke.man_hours_worked, 0), 2)
+         FROM kpi_indicators ki
+         WHERE ke.id = $1
+           AND ki.id = ke.indicator_id
+           AND ${RATE_INDICATOR_SQL}
+           AND ke.incidents_count IS NOT NULL
+           AND ke.man_hours_worked > 0`,
+        [id]
+      );
+
       res.json({
         success: true,
         message: 'KPI entry updated successfully',
@@ -203,6 +251,31 @@ export class KPIController {
       const { months = 12, indicatorId, packageId } = req.query;
       const projectId = req.projectId;
       const numMonths = Math.min(parseInt(months as string) || 12, 24);
+
+      const params: any[] = [numMonths];
+      let paramIndex = 2;
+
+      // Project/package predicates belong in the JOIN ON clause: putting them in
+      // WHERE on a LEFT JOIN would drop indicator/month rows that only have
+      // entries in other projects or packages
+      let entryJoin = `
+        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
+          AND ke.period_month = m.month
+          AND ke.period_year = m.year`;
+
+      if (projectId) {
+        entryJoin += `
+          AND ke.package_id IN (SELECT id FROM packages WHERE project_id = $${paramIndex})`;
+        params.push(projectId);
+        paramIndex++;
+      }
+
+      if (packageId) {
+        entryJoin += `
+          AND ke.package_id = $${paramIndex}`;
+        params.push(packageId);
+        paramIndex++;
+      }
 
       let query = `
         WITH months AS (
@@ -222,36 +295,18 @@ export class KPIController {
           ki.unit,
           ki.benchmark_value,
           AVG(ke.target_value) as avg_target,
-          AVG(ke.actual_value) as avg_actual,
+          ${ACTUAL_AGGREGATE_SQL} as avg_actual,
           SUM(ke.man_hours_worked) as total_man_hours,
           SUM(ke.incidents_count) as total_incidents
         FROM months m
         CROSS JOIN kpi_indicators ki
-        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
-          AND ke.period_month = m.month
-          AND ke.period_year = m.year
-        LEFT JOIN packages p ON ke.package_id = p.id
+        ${entryJoin}
         WHERE 1=1
       `;
-
-      const params: any[] = [numMonths];
-      let paramIndex = 2;
-
-      if (projectId) {
-        query += ` AND (p.project_id = $${paramIndex} OR ke.id IS NULL)`;
-        params.push(projectId);
-        paramIndex++;
-      }
 
       if (indicatorId) {
         query += ` AND ki.id = $${paramIndex}`;
         params.push(indicatorId);
-        paramIndex++;
-      }
-
-      if (packageId) {
-        query += ` AND (ke.package_id = $${paramIndex} OR ke.id IS NULL)`;
-        params.push(packageId);
         paramIndex++;
       }
 
@@ -312,10 +367,20 @@ export class KPIController {
       const currentYear = new Date().getFullYear();
       const projectId = req.projectId;
 
-      // Get aggregated KPI data for current month, filtered by project
-      const projectFilter = projectId
-        ? `LEFT JOIN packages p ON ke.package_id = p.id AND p.project_id = ${projectId}`
-        : 'LEFT JOIN packages p ON ke.package_id = p.id';
+      // Get aggregated KPI data for current month, filtered by project.
+      // The project predicate lives in the JOIN ON clause so indicators with
+      // entries only in other projects still appear (with NULL values).
+      const params: any[] = [currentMonth, currentYear];
+      let entryJoin = `
+        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
+          AND ke.period_month = $1
+          AND ke.period_year = $2`;
+
+      if (projectId) {
+        entryJoin += `
+          AND ke.package_id IN (SELECT id FROM packages WHERE project_id = $3)`;
+        params.push(projectId);
+      }
 
       const result = await db.query(`
         SELECT
@@ -325,17 +390,13 @@ export class KPIController {
           ki.unit,
           ki.benchmark_value,
           AVG(ke.target_value) as avg_target,
-          AVG(ke.actual_value) as avg_actual,
+          ${ACTUAL_AGGREGATE_SQL} as avg_actual,
           COUNT(ke.id) as entry_count
         FROM kpi_indicators ki
-        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
-          AND ke.period_month = $1
-          AND ke.period_year = $2
-        ${projectFilter}
-        ${projectId ? `WHERE p.project_id = ${projectId} OR ke.id IS NULL` : ''}
+        ${entryJoin}
         GROUP BY ki.id, ki.name, ki.type, ki.unit, ki.benchmark_value, ki.display_order
         ORDER BY ki.type, ki.display_order
-      `, [currentMonth, currentYear]);
+      `, params);
 
       const summary = result.rows.map((row) => {
         const isLowerBetter = row.name.includes('LTIFR') ||

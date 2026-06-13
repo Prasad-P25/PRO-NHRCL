@@ -35,11 +35,146 @@ import * as path from 'path';
 const ASSETS_PATH = path.join(__dirname, '..', 'assets', 'logos');
 const PROTECTHER_LOGO = path.join(ASSETS_PATH, 'protecther-logo.png');
 
+// ---------------------------------------------------------------------------
+// Sequential number generation (shared with capa.controller.ts).
+//
+// Numbers are computed from the MAX existing sequence for the prefix instead
+// of COUNT(*), so deletions never cause duplicates. Concurrent inserts are
+// handled by retrying the whole operation (including number generation) when
+// the unique constraint on the number column is violated (PostgreSQL error
+// code 23505). When used with a transaction the retry must wrap the whole
+// transaction (an aborted Postgres transaction cannot be resumed).
+// ---------------------------------------------------------------------------
+
+const UNIQUE_VIOLATION = '23505';
+const MAX_NUMBER_ATTEMPTS = 3;
+
+// Minimal interface satisfied by both the db wrapper and a pg PoolClient,
+// so generators can run inside or outside a transaction.
+export interface Queryable {
+  query: (text: string, params?: any[]) => Promise<any>;
+}
+
+export const isUniqueViolation = (error: any): boolean =>
+  !!error && error.code === UNIQUE_VIOLATION;
+
+export const withUniqueRetry = async <T>(operation: () => Promise<T>): Promise<T> => {
+  let lastError: any;
+  for (let attempt = 1; attempt <= MAX_NUMBER_ATTEMPTS; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError;
+};
+
+/**
+ * Next audit number: AUD-{PACKAGE_CODE}-{YEAR}-{NNN}.
+ * Sequence is per package per year, parsed from the numeric suffix
+ * (the digits after the last hyphen) of existing audit numbers.
+ */
+export const generateAuditNumber = async (client: Queryable, packageCode: string): Promise<string> => {
+  const year = new Date().getFullYear();
+  const prefix = `AUD-${packageCode}-${year}-`;
+  const result = await client.query(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING(audit_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_seq
+     FROM audits
+     WHERE audit_number LIKE $1`,
+    [`${prefix}%`]
+  );
+  const next = parseInt(result.rows[0].max_seq, 10) + 1;
+  return `${prefix}${String(next).padStart(3, '0')}`;
+};
+
+/**
+ * Next CAPA number: CAPA-{YEAR}-{NNNN} (unified 4-digit format).
+ * The numeric suffix is parsed after the last hyphen, so legacy 3-digit
+ * numbers (CAPA-2025-007) and 4-digit numbers (CAPA-2025-0007) both count
+ * toward the max. `offset` lets callers reserve several consecutive numbers
+ * when batch-inserting within a single transaction.
+ */
+export const generateCapaNumber = async (client: Queryable, offset = 0): Promise<string> => {
+  const year = new Date().getFullYear();
+  const prefix = `CAPA-${year}-`;
+  const result = await client.query(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING(capa_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_seq
+     FROM capa
+     WHERE capa_number LIKE $1`,
+    [`${prefix}%`]
+  );
+  const next = parseInt(result.rows[0].max_seq, 10) + 1 + offset;
+  return `${prefix}${String(next).padStart(4, '0')}`;
+};
+
+// ---------------------------------------------------------------------------
+// Project access guards (IDOR protection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify the audit exists and belongs to the caller's project.
+ * Super Admin may access audits in any project.
+ * Throws 404 if the audit does not exist, 403 if it belongs to another project.
+ */
+const assertAuditAccess = async (auditId: string | number, req: AuthRequest) => {
+  const result = await db.query(
+    `SELECT a.id, a.status, a.locked_at, p.project_id
+     FROM audits a
+     JOIN packages p ON a.package_id = p.id
+     WHERE a.id = $1`,
+    [auditId]
+  );
+  if (result.rows.length === 0) {
+    throw new AppError('Audit not found', 404);
+  }
+  if (req.user!.roleName !== 'Super Admin' && result.rows[0].project_id !== req.projectId) {
+    throw new AppError('Access denied to this audit', 403);
+  }
+  return result.rows[0];
+};
+
+/**
+ * Verify the audit response exists and its audit belongs to the caller's project.
+ * Throws 404 if the response does not exist, 403 if it belongs to another project.
+ */
+const assertResponseAccess = async (responseId: string | number, req: AuthRequest) => {
+  const result = await db.query(
+    `SELECT ar.id, a.id as audit_id, a.status, a.locked_at, p.project_id
+     FROM audit_responses ar
+     JOIN audits a ON ar.audit_id = a.id
+     JOIN packages p ON a.package_id = p.id
+     WHERE ar.id = $1`,
+    [responseId]
+  );
+  if (result.rows.length === 0) {
+    throw new AppError('Response not found', 404);
+  }
+  if (req.user!.roleName !== 'Super Admin' && result.rows[0].project_id !== req.projectId) {
+    throw new AppError('Access denied to this audit', 403);
+  }
+  return result.rows[0];
+};
+
+// Map a stored mime type / file path to a docx ImageRun type
+const getImageType = (fileType?: string, filePath?: string): 'png' | 'jpg' | 'gif' | 'bmp' => {
+  const source = `${fileType || ''} ${filePath || ''}`.toLowerCase();
+  if (source.includes('jpeg') || source.includes('jpg')) return 'jpg';
+  if (source.includes('gif')) return 'gif';
+  if (source.includes('bmp')) return 'bmp';
+  return 'png';
+};
+
 export class AuditController {
   getAllAudits = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { page = 1, pageSize = 20, packageId, status, auditorId } = req.query;
-      const offset = (Number(page) - 1) * Number(pageSize);
+      const { packageId, status, auditorId } = req.query;
+      const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? '20'), 10) || 20));
+      const offset = (page - 1) * pageSize;
       const projectId = req.projectId;
 
       let query = `
@@ -119,7 +254,7 @@ export class AuditController {
 
       // Add pagination
       query += ` ORDER BY a.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-      params.push(Number(pageSize), offset);
+      params.push(pageSize, offset);
 
       const result = await db.query(query, params);
 
@@ -157,9 +292,9 @@ export class AuditController {
           approvedAt: audit.approved_at,
         })),
         total,
-        page: Number(page),
-        pageSize: Number(pageSize),
-        totalPages: Math.ceil(total / Number(pageSize)),
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
       });
     } catch (error) {
       next(error);
@@ -175,20 +310,18 @@ export class AuditController {
 
       const { packageId, auditType, categoryIds, scheduledDate, contractorRep } = req.body;
 
-      // Get package code
-      const packageResult = await db.query('SELECT code FROM packages WHERE id = $1', [packageId]);
+      if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
+        throw new AppError('At least one category must be selected', 400);
+      }
+
+      // Get package code and verify it belongs to the caller's project
+      const packageResult = await db.query('SELECT code, project_id FROM packages WHERE id = $1', [packageId]);
       if (packageResult.rows.length === 0) {
         throw new AppError('Package not found', 404);
       }
-
-      // Generate audit number
-      const year = new Date().getFullYear();
-      const countResult = await db.query(
-        'SELECT COUNT(*) FROM audits WHERE package_id = $1 AND EXTRACT(YEAR FROM created_at) = $2',
-        [packageId, year]
-      );
-      const count = parseInt(countResult.rows[0].count) + 1;
-      const auditNumber = `AUD-${packageResult.rows[0].code}-${year}-${String(count).padStart(3, '0')}`;
+      if (req.user!.roleName !== 'Super Admin' && packageResult.rows[0].project_id !== req.projectId) {
+        throw new AppError('Access denied to this package', 403);
+      }
 
       // Count total items for selected categories
       const itemCountResult = await db.query(
@@ -199,23 +332,31 @@ export class AuditController {
       );
       const totalItems = parseInt(itemCountResult.rows[0].count);
 
-      // Create audit
-      const result = await db.query(
-        `INSERT INTO audits (audit_number, package_id, audit_type, auditor_id, scheduled_date, contractor_rep, total_items, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Draft')
-         RETURNING *`,
-        [auditNumber, packageId, auditType, req.user!.id, scheduledDate || null, contractorRep || null, totalItems]
+      // Create audit + category links atomically, retrying on audit number races
+      const audit = await withUniqueRetry(() =>
+        db.transaction(async (client) => {
+          const auditNumber = await generateAuditNumber(client, packageResult.rows[0].code);
+
+          const result = await client.query(
+            `INSERT INTO audits (audit_number, package_id, audit_type, auditor_id, scheduled_date, contractor_rep, total_items, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'Draft')
+             RETURNING *`,
+            [auditNumber, packageId, auditType, req.user!.id, scheduledDate || null, contractorRep || null, totalItems]
+          );
+
+          const created = result.rows[0];
+
+          // Link categories to audit
+          for (const categoryId of categoryIds) {
+            await client.query(
+              'INSERT INTO audit_category_selection (audit_id, category_id) VALUES ($1, $2)',
+              [created.id, categoryId]
+            );
+          }
+
+          return created;
+        })
       );
-
-      const audit = result.rows[0];
-
-      // Link categories to audit
-      for (const categoryId of categoryIds) {
-        await db.query(
-          'INSERT INTO audit_category_selection (audit_id, category_id) VALUES ($1, $2)',
-          [audit.id, categoryId]
-        );
-      }
 
       res.status(201).json({
         success: true,
@@ -239,6 +380,8 @@ export class AuditController {
   getAuditById = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+
+      await assertAuditAccess(id, req);
 
       const result = await db.query(
         `SELECT a.*, p.code as package_code, p.name as package_name,
@@ -318,6 +461,11 @@ export class AuditController {
       const { id } = req.params;
       const { scheduledDate, contractorRep, auditDate } = req.body;
 
+      const audit = await assertAuditAccess(id, req);
+      if (audit.locked_at || audit.status === 'Approved') {
+        throw new AppError('This audit has been approved and is locked. No changes allowed.', 409);
+      }
+
       await db.query(
         `UPDATE audits SET
          scheduled_date = COALESCE($1, scheduled_date),
@@ -340,17 +488,16 @@ export class AuditController {
     try {
       const { id } = req.params;
 
-      // Check if audit is in Draft status
-      const auditResult = await db.query('SELECT status FROM audits WHERE id = $1', [id]);
-      if (auditResult.rows.length === 0) {
-        throw new AppError('Audit not found', 404);
-      }
-      if (auditResult.rows[0].status !== 'Draft') {
+      // Check audit exists, belongs to the caller's project, and is in Draft status
+      const audit = await assertAuditAccess(id, req);
+      if (audit.status !== 'Draft') {
         throw new AppError('Can only delete draft audits', 400);
       }
 
-      await db.query('DELETE FROM audit_category_selection WHERE audit_id = $1', [id]);
-      await db.query('DELETE FROM audits WHERE id = $1', [id]);
+      await db.transaction(async (client) => {
+        await client.query('DELETE FROM audit_category_selection WHERE audit_id = $1', [id]);
+        await client.query('DELETE FROM audits WHERE id = $1', [id]);
+      });
 
       res.json({
         success: true,
@@ -364,6 +511,8 @@ export class AuditController {
   submitAudit = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+
+      await assertAuditAccess(id, req);
 
       // Get audit details before updating
       const auditResult = await db.query(
@@ -398,73 +547,57 @@ export class AuditController {
         );
       }
 
-      await db.query(
-        `UPDATE audits SET status = 'Pending Review', completed_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [id]
-      );
+      // Submit + CAPA auto-creation must be atomic: a CAPA failure must not
+      // leave the audit submitted with no CAPAs. Retried on CAPA number races.
+      const capasCreated = await withUniqueRetry(() =>
+        db.transaction(async (client) => {
+          const updateResult = await client.query(
+            `UPDATE audits SET status = 'Pending Review', completed_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND status IN ('Draft', 'In Progress', 'Rejected')`,
+            [id]
+          );
+          if (updateResult.rowCount === 0) {
+            // Existence already verified above, so this is a workflow conflict
+            throw new AppError('Only draft/in-progress audits can be submitted', 409);
+          }
 
-      // Auto-create CAPAs for items marked as "CAPA Required"
-      // Debug: Check all responses for this audit
-      const allResponses = await db.query(
-        `SELECT ar.id, ar.status, ar.capa_required, ar.observation
-         FROM audit_responses ar WHERE ar.audit_id = $1`,
-        [id]
-      );
-      logger.info(`Audit ${id}: Found ${allResponses.rows.length} total responses`);
-      // Log each response for debugging
-      allResponses.rows.forEach((r: any, idx: number) => {
-        logger.info(`Audit ${id} Response ${idx}: status=${r.status}, capa_required=${r.capa_required} (type: ${typeof r.capa_required})`);
-      });
-      // Handle both boolean true and string 't' from PostgreSQL
-      const ncWithCapa = allResponses.rows.filter((r: any) =>
-        r.status === 'NC' && (r.capa_required === true || r.capa_required === 't')
-      );
-      logger.info(`Audit ${id}: Found ${ncWithCapa.length} NC responses with capa_required=true`);
+          // Auto-create CAPAs for NC items marked as "CAPA Required"
+          const capaRequiredResponses = await client.query(
+            `SELECT ar.id as response_id, ar.observation, ai.audit_point, a.audit_number
+             FROM audit_responses ar
+             JOIN audit_items ai ON ar.audit_item_id = ai.id
+             JOIN audits a ON ar.audit_id = a.id
+             WHERE ar.audit_id = $1 AND ar.capa_required = true AND ar.status = 'NC'
+             AND NOT EXISTS (SELECT 1 FROM capa c WHERE c.response_id = ar.id)`,
+            [id]
+          );
 
-      const capaRequiredResponses = await db.query(
-        `SELECT ar.id as response_id, ar.observation, ai.audit_point, a.audit_number
-         FROM audit_responses ar
-         JOIN audit_items ai ON ar.audit_item_id = ai.id
-         JOIN audits a ON ar.audit_id = a.id
-         WHERE ar.audit_id = $1 AND ar.capa_required = true AND ar.status = 'NC'
-         AND NOT EXISTS (SELECT 1 FROM capa c WHERE c.response_id = ar.id)`,
-        [id]
-      );
-      logger.info(`Audit ${id}: Query returned ${capaRequiredResponses.rows.length} eligible for CAPA creation`);
+          if (capaRequiredResponses.rows.length === 0) {
+            return 0;
+          }
 
-      let capasCreated = 0;
-      const year = new Date().getFullYear();
+          // Batch create CAPAs with sequential numbers
+          const capaValues: any[] = [];
+          const capaParams: string[] = [];
+          let paramIndex = 1;
 
-      // Get current count once for all CAPAs to avoid race conditions
-      const countResult = await db.query(
-        `SELECT COUNT(*) FROM capa WHERE capa_number LIKE $1`,
-        [`CAPA-${year}-%`]
-      );
-      let baseCount = parseInt(countResult.rows[0].count);
+          for (let i = 0; i < capaRequiredResponses.rows.length; i++) {
+            const response = capaRequiredResponses.rows[i];
+            const capaNumber = await generateCapaNumber(client, i);
+            capaValues.push(capaNumber, response.response_id, response.observation || response.audit_point);
+            capaParams.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, 'Open')`);
+          }
 
-      // Batch create CAPAs if there are any
-      if (capaRequiredResponses.rows.length > 0) {
-        const capaValues: any[] = [];
-        const capaParams: string[] = [];
-        let paramIndex = 1;
-
-        for (const response of capaRequiredResponses.rows) {
-          baseCount++;
-          const capaNumber = `CAPA-${year}-${String(baseCount).padStart(3, '0')}`;
-          capaValues.push(capaNumber, response.response_id, response.observation || response.audit_point);
-          capaParams.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, 'Open')`);
-        }
-
-        // Single batch INSERT instead of multiple queries
-        if (capaParams.length > 0) {
-          await db.query(
+          // Single batch INSERT instead of multiple queries
+          await client.query(
             `INSERT INTO capa (capa_number, response_id, finding_description, status)
              VALUES ${capaParams.join(', ')}`,
             capaValues
           );
-          capasCreated = capaRequiredResponses.rows.length;
-        }
-      }
+
+          return capaRequiredResponses.rows.length;
+        })
+      );
 
       // Notify PMC Heads and Package Managers (parallel, non-blocking)
       if (auditResult.rows.length > 0) {
@@ -528,6 +661,8 @@ export class AuditController {
       const { id } = req.params;
       const { comments } = req.body;
 
+      await assertAuditAccess(id, req);
+
       // Get audit details
       const auditResult = await db.query(
         `SELECT a.audit_number, a.auditor_id, p.code as package_code
@@ -537,16 +672,19 @@ export class AuditController {
         [id]
       );
 
-      // Approve and lock the audit
-      await db.query(
+      // Approve and lock the audit (only audits pending review)
+      const updateResult = await db.query(
         `UPDATE audits SET
          status = 'Approved',
          approved_at = CURRENT_TIMESTAMP,
          approved_by = $1,
          locked_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
+         WHERE id = $2 AND status = 'Pending Review'`,
         [req.user!.id, id]
       );
+      if (updateResult.rowCount === 0) {
+        throw new AppError('Only audits pending review can be approved', 409);
+      }
 
       logger.info(`Audit ${id} approved and locked by user ${req.user!.id}`);
 
@@ -583,6 +721,8 @@ export class AuditController {
       const { id } = req.params;
       const { reason } = req.body;
 
+      await assertAuditAccess(id, req);
+
       // Get audit details
       const auditResult = await db.query(
         `SELECT a.audit_number, a.auditor_id, p.code as package_code
@@ -592,10 +732,13 @@ export class AuditController {
         [id]
       );
 
-      await db.query(
-        `UPDATE audits SET status = 'Rejected' WHERE id = $1`,
+      const updateResult = await db.query(
+        `UPDATE audits SET status = 'Rejected' WHERE id = $1 AND status = 'Pending Review'`,
         [id]
       );
+      if (updateResult.rowCount === 0) {
+        throw new AppError('Only audits pending review can be rejected', 409);
+      }
 
       // Notify the auditor
       if (auditResult.rows.length > 0) {
@@ -629,6 +772,8 @@ export class AuditController {
   getAuditResponses = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+
+      await assertAuditAccess(id, req);
 
       const result = await db.query(
         `SELECT ar.*, ai.sr_no, ai.audit_point, ai.standard_reference, ai.priority,
@@ -698,108 +843,120 @@ export class AuditController {
       const { id } = req.params;
       const { responses } = req.body;
 
-      // Check if audit is locked (approved)
-      const auditCheck = await db.query(
-        'SELECT status, locked_at FROM audits WHERE id = $1',
-        [id]
-      );
-      if (auditCheck.rows.length === 0) {
-        throw new AppError('Audit not found', 404);
+      if (!Array.isArray(responses)) {
+        throw new AppError('responses must be an array', 400);
       }
-      if (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at) {
+
+      // Check audit exists, belongs to the caller's project, and is not locked (approved)
+      const audit = await assertAuditAccess(id, req);
+      if (audit.status === 'Approved' || audit.locked_at) {
         throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
       }
 
-      let savedCount = 0;
-      let compliantCount = 0;
-      let nonCompliantCount = 0;
-      let naCount = 0;
+      const savedCount = await db.transaction(async (client) => {
+        let saved = 0;
 
-      for (const response of responses) {
-        // Get existing response for history tracking
-        const existingResponse = await db.query(
-          'SELECT * FROM audit_responses WHERE audit_id = $1 AND audit_item_id = $2',
-          [id, response.auditItemId]
+        for (const response of responses) {
+          // Get existing response for history tracking
+          const existingResponse = await client.query(
+            'SELECT * FROM audit_responses WHERE audit_id = $1 AND audit_item_id = $2',
+            [id, response.auditItemId]
+          );
+          const oldData = existingResponse.rows[0] || null;
+          const isUpdate = !!oldData;
+
+          // Insert or update response
+          const result = await client.query(
+            `INSERT INTO audit_responses (audit_id, audit_item_id, status, observation, risk_rating, capa_required, remarks, updated_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (audit_id, audit_item_id) DO UPDATE SET
+             status = EXCLUDED.status,
+             observation = EXCLUDED.observation,
+             risk_rating = EXCLUDED.risk_rating,
+             capa_required = EXCLUDED.capa_required,
+             remarks = EXCLUDED.remarks,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = CURRENT_TIMESTAMP
+             RETURNING id`,
+            [
+              id,
+              response.auditItemId,
+              response.status,
+              response.observation || null,
+              response.riskRating || null,
+              response.capaRequired || false,
+              response.remarks || null,
+              req.user!.id,
+            ]
+          );
+
+          // Log change to history
+          await client.query(
+            `INSERT INTO audit_response_history
+             (response_id, audit_id, audit_item_id, action, old_status, new_status,
+              old_observation, new_observation, old_risk_rating, new_risk_rating,
+              old_capa_required, new_capa_required, old_remarks, new_remarks,
+              changed_by, changed_by_name, ip_address)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+            [
+              result.rows[0].id,
+              id,
+              response.auditItemId,
+              isUpdate ? 'updated' : 'created',
+              oldData?.status ?? null,
+              response.status,
+              oldData?.observation ?? null,
+              response.observation || null,
+              oldData?.risk_rating ?? null,
+              response.riskRating || null,
+              oldData?.capa_required ?? null,
+              response.capaRequired || false,
+              oldData?.remarks ?? null,
+              response.remarks || null,
+              req.user!.id,
+              req.user!.name,
+              req.ip || null,
+            ]
+          );
+
+          saved++;
+        }
+
+        // Recompute counts from ALL stored responses, not just this batch,
+        // so partial saves don't corrupt the compliance figures
+        const countsResult = await client.query(
+          `SELECT status, COUNT(*) as count FROM audit_responses WHERE audit_id = $1 GROUP BY status`,
+          [id]
         );
-        const oldData = existingResponse.rows[0] || null;
-        const isUpdate = !!oldData;
 
-        // Insert or update response
-        const result = await db.query(
-          `INSERT INTO audit_responses (audit_id, audit_item_id, status, observation, risk_rating, capa_required, remarks, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (audit_id, audit_item_id) DO UPDATE SET
-           status = EXCLUDED.status,
-           observation = EXCLUDED.observation,
-           risk_rating = EXCLUDED.risk_rating,
-           capa_required = EXCLUDED.capa_required,
-           remarks = EXCLUDED.remarks,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = CURRENT_TIMESTAMP
-           RETURNING id`,
-          [
-            id,
-            response.auditItemId,
-            response.status,
-            response.observation || null,
-            response.riskRating || null,
-            response.capaRequired || false,
-            response.remarks || null,
-            req.user!.id,
-          ]
+        let compliantCount = 0;
+        let nonCompliantCount = 0;
+        let naCount = 0;
+        for (const row of countsResult.rows) {
+          if (row.status === 'C') compliantCount = parseInt(row.count);
+          else if (row.status === 'NC') nonCompliantCount = parseInt(row.count);
+          else if (row.status === 'NA') naCount = parseInt(row.count);
+        }
+
+        // Compliance % = compliant / (answered - NA) * 100, guarding divide-by-zero
+        const answeredExcludingNa = compliantCount + nonCompliantCount;
+        const compliancePercentage = answeredExcludingNa > 0
+          ? Math.round((compliantCount / answeredExcludingNa) * 100 * 10) / 10
+          : null;
+
+        await client.query(
+          `UPDATE audits SET
+           status = CASE WHEN status = 'Draft' THEN 'In Progress' ELSE status END,
+           compliant_count = $1,
+           non_compliant_count = $2,
+           na_count = $3,
+           compliance_percentage = $4
+           WHERE id = $5`,
+          [compliantCount, nonCompliantCount, naCount, compliancePercentage, id]
         );
 
-        // Log change to history
-        await db.query(
-          `INSERT INTO audit_response_history
-           (response_id, audit_id, audit_item_id, action, old_status, new_status,
-            old_observation, new_observation, old_risk_rating, new_risk_rating,
-            old_capa_required, new_capa_required, old_remarks, new_remarks,
-            changed_by, changed_by_name, ip_address)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-          [
-            result.rows[0].id,
-            id,
-            response.auditItemId,
-            isUpdate ? 'updated' : 'created',
-            oldData?.status || null,
-            response.status,
-            oldData?.observation || null,
-            response.observation || null,
-            oldData?.risk_rating || null,
-            response.riskRating || null,
-            oldData?.capa_required || null,
-            response.capaRequired || false,
-            oldData?.remarks || null,
-            response.remarks || null,
-            req.user!.id,
-            req.user!.name,
-            req.ip || null,
-          ]
-        );
-
-        savedCount++;
-        if (response.status === 'C') compliantCount++;
-        else if (response.status === 'NC') nonCompliantCount++;
-        else if (response.status === 'NA') naCount++;
-      }
-
-      // Update audit counts
-      const totalResponses = compliantCount + nonCompliantCount;
-      const compliancePercentage = totalResponses > 0
-        ? Math.round((compliantCount / totalResponses) * 100 * 10) / 10
-        : null;
-
-      await db.query(
-        `UPDATE audits SET
-         status = CASE WHEN status = 'Draft' THEN 'In Progress' ELSE status END,
-         compliant_count = $1,
-         non_compliant_count = $2,
-         na_count = $3,
-         compliance_percentage = $4
-         WHERE id = $5`,
-        [compliantCount, nonCompliantCount, naCount, compliancePercentage, id]
-      );
+        return saved;
+      });
 
       res.json({
         success: true,

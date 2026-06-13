@@ -10,14 +10,13 @@ A comprehensive web-based safety audit management portal that enables multiple a
 
 - **Multi-Project Support**: Manage audits across multiple client projects
 - **Multi-user Audit Execution**: Concurrent audit execution across project packages
-- **22 Audit Categories**: 600+ checkpoint items covering statutory compliance, technical audits, and KPIs
+- **18 Audit Categories**: 600+ checkpoint items covering statutory compliance, technical audits, and KPIs
 - **Role-Based Access Control**: Super Admin, PMC Head, Package Manager, Auditor, Contractor, Viewer
 - **KPI Tracking**: Leading and Lagging safety indicators (LTIFR, TRIFR)
 - **CAPA Management**: Corrective and Preventive Actions tracking
 - **Safety Maturity Assessment**: 5-level maturity model
 - **Real-time Dashboards**: Compliance metrics and trend analysis
 - **Evidence Management**: Photo and document attachments
-- **Offline Capability**: PWA support for field audits
 
 ## Tech Stack
 

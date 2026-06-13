@@ -4,6 +4,17 @@ import { logger } from '../utils/logger';
 
 async function seed() {
   try {
+    if (process.env.NODE_ENV === 'production' && process.env.FORCE_SEED !== 'true') {
+      logger.error(
+        'Refusing to seed in production. Seeding inserts demo users with well-known passwords. Set FORCE_SEED=true to override.'
+      );
+      process.exit(1);
+    }
+
+    logger.warn(
+      'Seeding DEMO data with well-known passwords (admin123 / demo123). For development use only — never expose a seeded database publicly.'
+    );
+
     logger.info('Starting database seeding...');
 
     // Seed Roles
@@ -71,10 +82,19 @@ async function seed() {
     `, [demoPassword]);
     logger.info('Users seeded');
 
-    // Assign all users to the default project
+    // Assign only the seeded demo users to the default project (never touch
+    // real users that may already exist in the database)
     await db.query(`
       INSERT INTO user_project_assignments (user_id, project_id, is_default)
       SELECT id, $1, true FROM users
+      WHERE email IN (
+        'admin@protecther.com',
+        'pmchead@protecther.com',
+        'manager.c2@protecther.com',
+        'auditor1@protecther.com',
+        'auditor2@protecther.com',
+        'contractor.c2@protecther.com'
+      )
       ON CONFLICT (user_id, project_id) DO NOTHING
     `, [defaultProjectId]);
     logger.info('User project assignments seeded');
@@ -617,8 +637,8 @@ async function seed() {
     // Get user and package IDs for creating audits
     const auditorResult = await db.query("SELECT id FROM users WHERE email = 'auditor1@protecther.com'");
     const reviewerResult = await db.query("SELECT id FROM users WHERE email = 'manager.c2@protecther.com'");
-    const package2Result = await db.query("SELECT id FROM packages WHERE code = 'C2'");
-    const package3Result = await db.query("SELECT id FROM packages WHERE code = 'C3'");
+    const package2Result = await db.query("SELECT id FROM packages WHERE code = 'C2' AND project_id = $1", [defaultProjectId]);
+    const package3Result = await db.query("SELECT id FROM packages WHERE code = 'C3' AND project_id = $1", [defaultProjectId]);
 
     if (auditorResult.rows.length > 0 && package2Result.rows.length > 0) {
       const auditorId = auditorResult.rows[0].id;

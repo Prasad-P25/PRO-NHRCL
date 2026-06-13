@@ -23,8 +23,18 @@ import scheduledReportRoutes from './routes/scheduled-report.routes';
 import { db } from './database/connection';
 import { logger } from './utils/logger';
 import { startCapaReminderJob } from './jobs/capaReminder';
+import { getJwtSecret } from './config/jwt';
 
 dotenv.config();
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception:', error);
+  process.exit(1);
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -35,9 +45,10 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(helmet());
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',');
-const isDev = process.env.NODE_ENV !== 'production';
 app.use(cors({
-  origin: isDev ? true : (origin, callback) => {
+  // Allowlist in every environment — reflecting arbitrary origins with
+  // credentials is unsafe if NODE_ENV is ever left unset on a deployed box
+  origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -89,6 +100,9 @@ app.use((req, res) => {
 // Start server
 const startServer = async () => {
   try {
+    // Fail fast if JWT_SECRET is missing in production
+    getJwtSecret();
+
     // Test database connection
     await db.query('SELECT NOW()');
     logger.info('Database connected successfully');

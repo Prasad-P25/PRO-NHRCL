@@ -20,7 +20,7 @@ router.post(
 
 router.post('/logout', authenticate, authController.logout);
 
-router.post('/refresh', authController.refreshToken);
+router.post('/refresh', authLimiter, authController.refreshToken);
 
 // Forgot password - strict rate limit
 router.post(
@@ -37,8 +37,8 @@ router.post(
   [
     body('token').notEmpty().withMessage('Token is required'),
     body('password')
-      .isLength({ min: 6 })
-      .withMessage('Password must be at least 6 characters'),
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
   ],
   authController.resetPassword
 );

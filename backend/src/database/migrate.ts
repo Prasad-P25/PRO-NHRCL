@@ -12,6 +12,9 @@ DROP TABLE IF EXISTS maturity_assessments CASCADE;
 DROP TABLE IF EXISTS kpi_entries CASCADE;
 DROP TABLE IF EXISTS kpi_indicators CASCADE;
 DROP TABLE IF EXISTS capa CASCADE;
+DROP TABLE IF EXISTS audit_response_history CASCADE;
+DROP TABLE IF EXISTS audit_attachments CASCADE;
+DROP TABLE IF EXISTS audit_comments CASCADE;
 DROP TABLE IF EXISTS audit_evidences CASCADE;
 DROP TABLE IF EXISTS audit_responses CASCADE;
 DROP TABLE IF EXISTS audit_category_selection CASCADE;
@@ -19,7 +22,6 @@ DROP TABLE IF EXISTS audits CASCADE;
 DROP TABLE IF EXISTS audit_items CASCADE;
 DROP TABLE IF EXISTS audit_sections CASCADE;
 DROP TABLE IF EXISTS audit_categories CASCADE;
-DROP TABLE IF EXISTS contractors CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS packages CASCADE;
 DROP TABLE IF EXISTS user_project_assignments CASCADE;
@@ -27,7 +29,7 @@ DROP TABLE IF EXISTS projects CASCADE;
 DROP TABLE IF EXISTS roles CASCADE;
 
 -- Roles
-CREATE TABLE roles (
+CREATE TABLE IF NOT EXISTS roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL UNIQUE,
     permissions JSONB DEFAULT '{}',
@@ -35,7 +37,7 @@ CREATE TABLE roles (
 );
 
 -- Projects
-CREATE TABLE projects (
+CREATE TABLE IF NOT EXISTS projects (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
@@ -52,7 +54,7 @@ CREATE TABLE projects (
 );
 
 -- Packages (sites within a project)
-CREATE TABLE packages (
+CREATE TABLE IF NOT EXISTS packages (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES projects(id),
     code VARCHAR(10) NOT NULL,
@@ -66,7 +68,7 @@ CREATE TABLE packages (
 );
 
 -- Users
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
@@ -76,12 +78,15 @@ CREATE TABLE users (
     phone VARCHAR(20),
     is_active BOOLEAN DEFAULT true,
     last_login TIMESTAMP,
+    reset_token VARCHAR(255),
+    reset_token_expires TIMESTAMP,
+    password_changed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- User-Project assignments (many-to-many)
-CREATE TABLE user_project_assignments (
+CREATE TABLE IF NOT EXISTS user_project_assignments (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -91,7 +96,7 @@ CREATE TABLE user_project_assignments (
 );
 
 -- Audit Categories
-CREATE TABLE audit_categories (
+CREATE TABLE IF NOT EXISTS audit_categories (
     id SERIAL PRIMARY KEY,
     code VARCHAR(10) NOT NULL UNIQUE,
     name VARCHAR(100) NOT NULL,
@@ -104,7 +109,7 @@ CREATE TABLE audit_categories (
 );
 
 -- Audit Sections
-CREATE TABLE audit_sections (
+CREATE TABLE IF NOT EXISTS audit_sections (
     id SERIAL PRIMARY KEY,
     category_id INTEGER REFERENCES audit_categories(id),
     code VARCHAR(5) NOT NULL,
@@ -114,20 +119,20 @@ CREATE TABLE audit_sections (
 );
 
 -- Audit Items
-CREATE TABLE audit_items (
+CREATE TABLE IF NOT EXISTS audit_items (
     id SERIAL PRIMARY KEY,
     section_id INTEGER REFERENCES audit_sections(id),
     sr_no INTEGER NOT NULL,
     audit_point TEXT NOT NULL,
     standard_reference TEXT,
     evidence_required TEXT,
-    priority VARCHAR(5) DEFAULT 'P1',
+    priority VARCHAR(5) DEFAULT 'P1' CHECK (priority IN ('P1', 'P2', 'P3')),
     is_active BOOLEAN DEFAULT true,
     UNIQUE(section_id, sr_no)
 );
 
 -- Audits
-CREATE TABLE audits (
+CREATE TABLE IF NOT EXISTS audits (
     id SERIAL PRIMARY KEY,
     audit_number VARCHAR(50) NOT NULL UNIQUE,
     package_id INTEGER REFERENCES packages(id),
@@ -137,12 +142,14 @@ CREATE TABLE audits (
     contractor_rep VARCHAR(100),
     scheduled_date DATE,
     audit_date DATE,
-    status VARCHAR(20) DEFAULT 'Draft',
+    status VARCHAR(20) DEFAULT 'Draft'
+        CHECK (status IN ('Draft', 'In Progress', 'Pending Review', 'Approved', 'Rejected')),
     total_items INTEGER DEFAULT 0,
     compliant_count INTEGER DEFAULT 0,
     non_compliant_count INTEGER DEFAULT 0,
     na_count INTEGER DEFAULT 0,
     compliance_percentage DECIMAL(5,2),
+    locked_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     approved_at TIMESTAMP,
@@ -150,7 +157,7 @@ CREATE TABLE audits (
 );
 
 -- Audit Category Selection
-CREATE TABLE audit_category_selection (
+CREATE TABLE IF NOT EXISTS audit_category_selection (
     id SERIAL PRIMARY KEY,
     audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE,
     category_id INTEGER REFERENCES audit_categories(id),
@@ -158,11 +165,11 @@ CREATE TABLE audit_category_selection (
 );
 
 -- Audit Responses
-CREATE TABLE audit_responses (
+CREATE TABLE IF NOT EXISTS audit_responses (
     id SERIAL PRIMARY KEY,
     audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE,
     audit_item_id INTEGER REFERENCES audit_items(id),
-    status VARCHAR(5),
+    status VARCHAR(5) CHECK (status IN ('C', 'NC', 'NA', 'NV')),
     observation TEXT,
     risk_rating VARCHAR(20),
     capa_required BOOLEAN DEFAULT false,
@@ -174,7 +181,7 @@ CREATE TABLE audit_responses (
 );
 
 -- Audit Evidences
-CREATE TABLE audit_evidences (
+CREATE TABLE IF NOT EXISTS audit_evidences (
     id SERIAL PRIMARY KEY,
     response_id INTEGER REFERENCES audit_responses(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
@@ -186,7 +193,7 @@ CREATE TABLE audit_evidences (
 );
 
 -- Audit Comments
-CREATE TABLE audit_comments (
+CREATE TABLE IF NOT EXISTS audit_comments (
     id SERIAL PRIMARY KEY,
     audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -198,7 +205,7 @@ CREATE TABLE audit_comments (
 );
 
 -- Audit Attachments (audit-level, separate from response evidences)
-CREATE TABLE audit_attachments (
+CREATE TABLE IF NOT EXISTS audit_attachments (
     id SERIAL PRIMARY KEY,
     audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
@@ -210,14 +217,41 @@ CREATE TABLE audit_attachments (
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_comments_audit_id ON audit_comments(audit_id);
-CREATE INDEX idx_audit_attachments_audit_id ON audit_attachments(audit_id);
+CREATE INDEX IF NOT EXISTS idx_audit_comments_audit_id ON audit_comments(audit_id);
+CREATE INDEX IF NOT EXISTS idx_audit_attachments_audit_id ON audit_attachments(audit_id);
+
+-- Audit Response History (change tracking)
+CREATE TABLE IF NOT EXISTS audit_response_history (
+    id SERIAL PRIMARY KEY,
+    response_id INTEGER REFERENCES audit_responses(id) ON DELETE CASCADE,
+    audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE,
+    audit_item_id INTEGER,
+    action VARCHAR(20) NOT NULL,
+    old_status VARCHAR(5),
+    new_status VARCHAR(5),
+    old_observation TEXT,
+    new_observation TEXT,
+    old_risk_rating VARCHAR(20),
+    new_risk_rating VARCHAR(20),
+    old_capa_required BOOLEAN,
+    new_capa_required BOOLEAN,
+    old_remarks TEXT,
+    new_remarks TEXT,
+    changed_by INTEGER REFERENCES users(id),
+    changed_by_name VARCHAR(100),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address VARCHAR(50)
+);
+
+CREATE INDEX IF NOT EXISTS idx_response_history_response ON audit_response_history(response_id);
+CREATE INDEX IF NOT EXISTS idx_response_history_audit ON audit_response_history(audit_id);
+CREATE INDEX IF NOT EXISTS idx_response_history_changed_at ON audit_response_history(changed_at DESC);
 
 -- CAPA
-CREATE TABLE capa (
+CREATE TABLE IF NOT EXISTS capa (
     id SERIAL PRIMARY KEY,
     capa_number VARCHAR(50) NOT NULL UNIQUE,
-    response_id INTEGER REFERENCES audit_responses(id),
+    response_id INTEGER REFERENCES audit_responses(id) ON DELETE SET NULL,
     finding_description TEXT NOT NULL,
     root_cause TEXT,
     corrective_action TEXT,
@@ -225,15 +259,17 @@ CREATE TABLE capa (
     responsible_person VARCHAR(100),
     responsible_dept VARCHAR(100),
     target_date DATE,
-    status VARCHAR(20) DEFAULT 'Open',
+    status VARCHAR(20) DEFAULT 'Open'
+        CHECK (status IN ('Open', 'In Progress', 'Closed')),
     closed_date DATE,
     verified_by INTEGER REFERENCES users(id),
     verification_remarks TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- KPI Indicators
-CREATE TABLE kpi_indicators (
+CREATE TABLE IF NOT EXISTS kpi_indicators (
     id SERIAL PRIMARY KEY,
     type VARCHAR(20),
     category VARCHAR(100),
@@ -247,12 +283,12 @@ CREATE TABLE kpi_indicators (
 );
 
 -- KPI Entries
-CREATE TABLE kpi_entries (
+CREATE TABLE IF NOT EXISTS kpi_entries (
     id SERIAL PRIMARY KEY,
     package_id INTEGER REFERENCES packages(id),
     indicator_id INTEGER REFERENCES kpi_indicators(id),
-    period_month INTEGER,
-    period_year INTEGER,
+    period_month INTEGER NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+    period_year INTEGER NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
     target_value DECIMAL(10,2),
     actual_value DECIMAL(10,2),
     man_hours_worked BIGINT,
@@ -264,18 +300,19 @@ CREATE TABLE kpi_entries (
 );
 
 -- Maturity Assessments
-CREATE TABLE maturity_assessments (
+CREATE TABLE IF NOT EXISTS maturity_assessments (
     id SERIAL PRIMARY KEY,
     package_id INTEGER REFERENCES packages(id),
     assessment_date DATE,
     assessor_id INTEGER REFERENCES users(id),
     overall_score DECIMAL(3,1),
-    status VARCHAR(20),
+    status VARCHAR(20)
+        CHECK (status IN ('Draft', 'In Progress', 'Completed', 'Submitted')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Maturity Responses
-CREATE TABLE maturity_responses (
+CREATE TABLE IF NOT EXISTS maturity_responses (
     id SERIAL PRIMARY KEY,
     assessment_id INTEGER REFERENCES maturity_assessments(id) ON DELETE CASCADE,
     dimension VARCHAR(100),
@@ -287,7 +324,7 @@ CREATE TABLE maturity_responses (
 );
 
 -- Audit Logs
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     action VARCHAR(50),
@@ -301,7 +338,7 @@ CREATE TABLE audit_logs (
 );
 
 -- Notifications
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
@@ -318,7 +355,7 @@ CREATE TABLE notifications (
 );
 
 -- Scheduled Reports
-CREATE TABLE scheduled_reports (
+CREATE TABLE IF NOT EXISTS scheduled_reports (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     report_type VARCHAR(50) NOT NULL,
@@ -337,7 +374,7 @@ CREATE TABLE scheduled_reports (
 );
 
 -- Generated Reports (history)
-CREATE TABLE generated_reports (
+CREATE TABLE IF NOT EXISTS generated_reports (
     id SERIAL PRIMARY KEY,
     scheduled_report_id INTEGER REFERENCES scheduled_reports(id) ON DELETE SET NULL,
     name VARCHAR(100) NOT NULL,
@@ -353,28 +390,62 @@ CREATE TABLE generated_reports (
     completed_at TIMESTAMP
 );
 
+-- Foreign keys that could not be declared inline due to table creation order
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'projects_created_by_fkey'
+    ) THEN
+        ALTER TABLE projects
+            ADD CONSTRAINT projects_created_by_fkey
+            FOREIGN KEY (created_by) REFERENCES users(id);
+    END IF;
+END $$;
+
 -- Indexes for performance
-CREATE INDEX idx_projects_status ON projects(status);
-CREATE INDEX idx_packages_project_id ON packages(project_id);
-CREATE INDEX idx_user_project_user ON user_project_assignments(user_id);
-CREATE INDEX idx_user_project_project ON user_project_assignments(project_id);
-CREATE INDEX idx_audits_package_id ON audits(package_id);
-CREATE INDEX idx_audits_status ON audits(status);
-CREATE INDEX idx_audits_auditor_id ON audits(auditor_id);
-CREATE INDEX idx_audit_responses_audit_id ON audit_responses(audit_id);
-CREATE INDEX idx_audit_responses_status ON audit_responses(status);
-CREATE INDEX idx_capa_status ON capa(status);
-CREATE INDEX idx_kpi_entries_package ON kpi_entries(package_id, period_year, period_month);
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role_id);
-CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
-CREATE INDEX idx_notifications_created ON notifications(created_at DESC);
-CREATE INDEX idx_scheduled_reports_next_run ON scheduled_reports(next_run_at) WHERE is_active = true;
-CREATE INDEX idx_generated_reports_schedule ON generated_reports(scheduled_report_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_packages_project_id ON packages(project_id);
+CREATE INDEX IF NOT EXISTS idx_users_package_id ON users(package_id);
+CREATE INDEX IF NOT EXISTS idx_user_project_user ON user_project_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_project_project ON user_project_assignments(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_project_one_default
+    ON user_project_assignments(user_id) WHERE is_default;
+CREATE INDEX IF NOT EXISTS idx_audits_package_id ON audits(package_id);
+CREATE INDEX IF NOT EXISTS idx_audits_status ON audits(status);
+CREATE INDEX IF NOT EXISTS idx_audits_auditor_id ON audits(auditor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_responses_audit_id ON audit_responses(audit_id);
+CREATE INDEX IF NOT EXISTS idx_audit_responses_item_id ON audit_responses(audit_item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_responses_status ON audit_responses(status);
+CREATE INDEX IF NOT EXISTS idx_audit_evidences_response_id ON audit_evidences(response_id);
+CREATE INDEX IF NOT EXISTS idx_capa_status ON capa(status);
+CREATE INDEX IF NOT EXISTS idx_capa_response_id ON capa(response_id);
+CREATE INDEX IF NOT EXISTS idx_capa_target_date ON capa(target_date) WHERE status != 'Closed';
+CREATE INDEX IF NOT EXISTS idx_kpi_entries_package ON kpi_entries(package_id, period_year, period_month);
+CREATE INDEX IF NOT EXISTS idx_kpi_entries_period ON kpi_entries(period_year, period_month);
+CREATE INDEX IF NOT EXISTS idx_kpi_entries_indicator ON kpi_entries(indicator_id);
+CREATE INDEX IF NOT EXISTS idx_maturity_assessments_package ON maturity_assessments(package_id);
+CREATE INDEX IF NOT EXISTS idx_maturity_responses_assessment ON maturity_responses(assessment_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role_id);
+CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token) WHERE reset_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduled_reports_next_run ON scheduled_reports(next_run_at) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_generated_reports_schedule ON generated_reports(scheduled_report_id);
 `;
 
 async function migrate() {
   try {
+    // Guard: this script DROPs every table. Never let it run against a
+    // production database unless explicitly forced.
+    if (process.env.NODE_ENV === 'production' && process.env.FORCE_MIGRATE !== 'true') {
+      logger.error(
+        'Refusing to run destructive migrate in production. Set FORCE_MIGRATE=true to override (this will DROP ALL TABLES and DELETE ALL DATA).'
+      );
+      process.exit(1);
+    }
+
     logger.info('Starting database migration...');
 
     await db.query(schema);

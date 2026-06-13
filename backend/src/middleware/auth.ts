@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
 import { db } from '../database/connection';
 import { tokenBlacklist } from '../utils/tokenBlacklist';
+import { getJwtSecret } from '../config/jwt';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -35,13 +36,13 @@ export const authenticate = async (
       throw new AppError('Token has been revoked', 401);
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'default-secret'
-    ) as { userId: number };
+    const decoded = jwt.verify(token, getJwtSecret()) as {
+      userId: number;
+      iat?: number;
+    };
 
     const result = await db.query(
-      `SELECT u.id, u.email, u.name, u.role_id, u.package_id, r.name as role_name
+      `SELECT u.id, u.email, u.name, u.role_id, u.package_id, u.password_changed_at, r.name as role_name
        FROM users u
        JOIN roles r ON u.role_id = r.id
        WHERE u.id = $1 AND u.is_active = true`,
@@ -53,6 +54,15 @@ export const authenticate = async (
     }
 
     const user = result.rows[0];
+
+    // Reject tokens issued before the user's last password change
+    if (
+      user.password_changed_at &&
+      decoded.iat &&
+      decoded.iat * 1000 < new Date(user.password_changed_at).getTime()
+    ) {
+      throw new AppError('Token invalidated by password change', 401);
+    }
     req.user = {
       id: user.id,
       email: user.email,

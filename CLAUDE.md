@@ -334,7 +334,7 @@ Frontend uses `VITE_API_URL` env var (defaults to `/api/v1`).
 ### Infrastructure
 - Hosted on Windows machine with Cloudflare Tunnel
 - Tunnel config: `C:\Users\IT\.cloudflared\config.yml`
-- Tunnel name: `protecther-audit`
+- Tunnel name: `mahsr-safety`
 
 ### Startup/Shutdown Scripts
 ```bash
@@ -356,7 +356,7 @@ Run `create-startup-shortcut.vbs` to add startup shortcut to Windows Startup fol
 
 ### Adding New Subdomains
 ```bash
-cloudflared tunnel route dns protecther-audit <subdomain>.protecther.in
+cloudflared tunnel route dns mahsr-safety <subdomain>.protecther.in
 ```
 
 ## Conventions

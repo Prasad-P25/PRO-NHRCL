@@ -24,8 +24,8 @@ router.post(
   [
     body('email').isEmail().withMessage('Please provide a valid email'),
     body('password')
-      .isLength({ min: 6 })
-      .withMessage('Password must be at least 6 characters'),
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
     body('name').notEmpty().withMessage('Name is required'),
     body('roleId').isInt().withMessage('Role ID is required'),
   ],

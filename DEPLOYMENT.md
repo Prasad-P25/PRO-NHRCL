@@ -40,7 +40,7 @@ SMTP_FROM=PROTECTHER Audit Panel <noreply@protecther.com>
 
 ### 4. Infrastructure
 
-- [x] Cloudflare Tunnel configured (`protecther-audit`)
+- [x] Cloudflare Tunnel configured (`mahsr-safety`)
 - [x] Tunnel routes: `audit.protecther.in`, `api-audit.protecther.in`
 - [x] Startup scripts ready
 - [x] Auto-start shortcut available
@@ -125,7 +125,7 @@ Backups are stored in `C:\PROJECTS\PRO-NHRCL\backups\` and auto-cleaned after 7 
 
 ### Tunnel not connecting
 - Verify `cloudflared.exe` path in `start-protecther.bat`
-- Check tunnel configuration: `cloudflared tunnel info protecther-audit`
+- Check tunnel configuration: `cloudflared tunnel info mahsr-safety`
 
 ### CORS errors
 - Verify `CORS_ORIGIN` in `backend/.env` includes all required domains

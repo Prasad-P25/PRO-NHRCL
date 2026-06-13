@@ -162,30 +162,32 @@ async function importChecklist() {
         categoryId = catResult.rows[0].id;
       }
 
-      // Delete existing sections and items for this category (clean import)
-      await db.query(
-        `DELETE FROM audit_items WHERE section_id IN (SELECT id FROM audit_sections WHERE category_id = $1)`,
-        [categoryId]
-      );
-      await db.query(`DELETE FROM audit_sections WHERE category_id = $1`, [categoryId]);
-
-      // Insert sections and items
+      // Upsert sections and items. We must NOT delete existing items, because
+      // audit_responses reference them (deleting would fail or orphan responses).
       for (let secIndex = 0; secIndex < category.sections.length; secIndex++) {
         const section = category.sections[secIndex];
 
         const secResult = await db.query(
           `INSERT INTO audit_sections (category_id, code, name, display_order)
            VALUES ($1, $2, $3, $4)
+           ON CONFLICT (category_id, code)
+           DO UPDATE SET name = EXCLUDED.name, display_order = EXCLUDED.display_order
            RETURNING id`,
           [categoryId, section.code, section.name, secIndex + 1]
         );
         const sectionId = secResult.rows[0].id;
 
-        // Insert items
+        // Upsert items
         for (const item of section.items) {
           await db.query(
             `INSERT INTO audit_items (section_id, sr_no, audit_point, standard_reference, evidence_required, priority, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, true)`,
+             VALUES ($1, $2, $3, $4, $5, $6, true)
+             ON CONFLICT (section_id, sr_no)
+             DO UPDATE SET audit_point = EXCLUDED.audit_point,
+                           standard_reference = EXCLUDED.standard_reference,
+                           evidence_required = EXCLUDED.evidence_required,
+                           priority = EXCLUDED.priority,
+                           is_active = true`,
             [sectionId, item.srNo, item.auditPoint, item.standardReference, item.evidenceRequired, item.priority || 'P1']
           );
         }

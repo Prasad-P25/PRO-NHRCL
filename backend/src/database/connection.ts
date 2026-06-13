@@ -1,5 +1,6 @@
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -9,7 +10,7 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'protecther_audit',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
-  max: 50, // Increased from 20 for better concurrency
+  max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000, // Increased from 2s to 5s
   statement_timeout: 30000, // 30 second query timeout to prevent hanging queries
@@ -17,8 +18,9 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  // A dropped idle connection must not take down the whole API. pg discards
+  // the broken client automatically and creates a fresh one on next use.
+  logger.error('Unexpected error on idle PostgreSQL client', err);
 });
 
 export const db = {
@@ -28,7 +30,7 @@ export const db = {
 
   getClient: () => pool.connect(),
 
-  transaction: async <T>(callback: (client: any) => Promise<T>): Promise<T> => {
+  transaction: async <T>(callback: (client: PoolClient) => Promise<T>): Promise<T> => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -36,7 +38,13 @@ export const db = {
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      // Guard the ROLLBACK: on a broken connection it can throw and mask the
+      // original error.
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.error('Failed to roll back transaction', rollbackError);
+      }
       throw error;
     } finally {
       client.release();

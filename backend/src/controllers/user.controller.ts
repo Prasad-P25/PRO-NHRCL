@@ -76,36 +76,41 @@ export class UserController {
       const { page = 1, pageSize = 20, roleId, packageId, search } = req.query;
       const offset = (Number(page) - 1) * Number(pageSize);
 
-      let query = `
-        SELECT u.*, r.name as role_name, p.code as package_code, p.name as package_name
+      const baseFrom = `
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN packages p ON u.package_id = p.id
         WHERE 1=1
       `;
+      let whereClause = '';
       const params: any[] = [];
       let paramIndex = 1;
 
       if (roleId) {
-        query += ` AND u.role_id = $${paramIndex++}`;
+        whereClause += ` AND u.role_id = $${paramIndex++}`;
         params.push(roleId);
       }
 
       if (packageId) {
-        query += ` AND u.package_id = $${paramIndex++}`;
+        whereClause += ` AND u.package_id = $${paramIndex++}`;
         params.push(packageId);
       }
 
       if (search) {
-        query += ` AND (u.name ILIKE $${paramIndex++} OR u.email ILIKE $${paramIndex++})`;
+        whereClause += ` AND (u.name ILIKE $${paramIndex++} OR u.email ILIKE $${paramIndex++})`;
         params.push(`%${search}%`, `%${search}%`);
       }
 
       // Get total count
       const countResult = await db.query(
-        query.replace('SELECT u.*, r.name as role_name, p.code as package_code, p.name as package_name', 'SELECT COUNT(*)'),
+        `SELECT COUNT(*) ${baseFrom} ${whereClause}`,
         params
       );
+
+      let query = `
+        SELECT u.*, r.name as role_name, p.code as package_code, p.name as package_name
+        ${baseFrom} ${whereClause}
+      `;
 
       // Add pagination
       query += ` ORDER BY u.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
