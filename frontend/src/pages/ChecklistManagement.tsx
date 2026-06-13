@@ -440,7 +440,7 @@ export function ChecklistManagementPage() {
             <DialogTitle>{editingItem ? 'Edit Category' : 'Add Category'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Code *</Label>
                 <Input
@@ -523,7 +523,7 @@ export function ChecklistManagementPage() {
             <DialogTitle>{editingItem ? 'Edit Section' : 'Add Section'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Code *</Label>
                 <Input
@@ -573,7 +573,7 @@ export function ChecklistManagementPage() {
             <DialogTitle>{editingItem ? 'Edit Audit Item' : 'Add Audit Item'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Sr No *</Label>
                 <Input

@@ -104,12 +104,12 @@ export function Header() {
 
   return (
     <header className="fixed top-0 z-50 w-full border-b bg-background">
-      <div className="flex h-16 items-center px-4">
-        <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+      <div className="flex h-16 items-center px-2 sm:px-4">
+        <Button variant="ghost" size="icon" onClick={toggleSidebar} className="shrink-0">
           <Menu className="h-5 w-5" />
         </Button>
 
-        <Link to="/" className="ml-4 flex items-center gap-2">
+        <Link to="/" className="ml-1 flex shrink-0 items-center gap-2 sm:ml-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
             P
           </div>
@@ -118,12 +118,12 @@ export function Header() {
           </span>
         </Link>
 
-        {/* Project Selector */}
-        <div className="ml-4">
+        {/* Project Selector (allowed to shrink/truncate on small screens) */}
+        <div className="ml-2 min-w-0 flex-1 sm:ml-4 sm:flex-none">
           <ProjectSelector />
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           {/* Theme Toggle */}
           <ThemeToggle />
 

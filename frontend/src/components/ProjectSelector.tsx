@@ -104,9 +104,9 @@ export function ProjectSelector() {
   // Single project - just display it without dropdown
   if (projects.length === 1) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/50">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">{projects[0].name}</span>
+      <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
+        <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="truncate text-sm font-medium">{projects[0].name}</span>
       </div>
     );
   }
@@ -114,7 +114,7 @@ export function ProjectSelector() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="flex items-center gap-2 max-w-[200px]">
+        <Button variant="outline" className="flex items-center gap-2 max-w-[150px] sm:max-w-[200px]">
           <Building2 className="h-4 w-4 flex-shrink-0" />
           <span className="truncate text-sm">
             {currentProject?.name || 'Select Project'}

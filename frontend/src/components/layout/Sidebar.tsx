@@ -96,10 +96,17 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { sidebarOpen, availableProjects } = useAppStore();
+  const { sidebarOpen, availableProjects, setSidebarOpen } = useAppStore();
   const { user } = useAuthStore();
   const [expandedItems, setExpandedItems] = useState<string[]>(['Audits']);
   const projectCount = availableProjects.length;
+
+  // After navigating on a phone, close the overlay sidebar
+  const closeOnMobile = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  };
 
   const toggleExpanded = (title: string) => {
     setExpandedItems((prev) =>
@@ -117,12 +124,13 @@ export function Sidebar() {
     return item.roles.includes(userRoleName);
   });
 
-  if (!sidebarOpen) {
-    return null;
-  }
-
   return (
-    <aside className="fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] w-64 border-r bg-background">
+    <aside
+      className={cn(
+        'fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] w-64 border-r bg-background transition-transform duration-300',
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      )}
+    >
       <nav className="h-full overflow-y-auto p-4">
         <ul className="space-y-2">
           {filteredNavItems.map((item) => (
@@ -157,6 +165,7 @@ export function Sidebar() {
                         <li key={child.href}>
                           <NavLink
                             to={child.href}
+                            onClick={closeOnMobile}
                             className={({ isActive }) =>
                               cn(
                                 'block rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
@@ -174,6 +183,7 @@ export function Sidebar() {
               ) : (
                 <NavLink
                   to={item.href!}
+                  onClick={closeOnMobile}
                   className={({ isActive }) =>
                     cn(
                       'flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
