@@ -977,15 +977,10 @@ export class AuditController {
         throw new AppError('No file uploaded', 400);
       }
 
-      // Check if audit is locked
-      const auditCheck = await db.query(
-        `SELECT a.status, a.locked_at FROM audits a
-         JOIN audit_responses ar ON ar.audit_id = a.id
-         WHERE ar.id = $1`,
-        [responseId]
-      );
-      if (auditCheck.rows.length > 0 &&
-          (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at)) {
+      // Verify the response exists, belongs to the caller's project (IDOR),
+      // and the audit is not locked.
+      const response = await assertResponseAccess(responseId, req);
+      if (response.status === 'Approved' || response.locked_at) {
         throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
       }
 
@@ -1019,22 +1014,32 @@ export class AuditController {
     try {
       const { responseId, evidenceId } = req.params;
 
-      // Check if audit is locked
-      const auditCheck = await db.query(
-        `SELECT a.status, a.locked_at FROM audits a
-         JOIN audit_responses ar ON ar.audit_id = a.id
-         WHERE ar.id = $1`,
-        [responseId]
-      );
-      if (auditCheck.rows.length > 0 &&
-          (auditCheck.rows[0].status === 'Approved' || auditCheck.rows[0].locked_at)) {
+      // Verify the response exists, belongs to the caller's project (IDOR),
+      // and the audit is not locked.
+      const response = await assertResponseAccess(responseId, req);
+      if (response.status === 'Approved' || response.locked_at) {
         throw new AppError('This audit has been approved and is locked. No changes allowed.', 403);
       }
+
+      // Fetch the file path so we can remove it from disk after the DB delete.
+      const evidence = await db.query(
+        'SELECT file_path FROM audit_evidences WHERE id = $1 AND response_id = $2',
+        [evidenceId, responseId]
+      );
 
       await db.query(
         'DELETE FROM audit_evidences WHERE id = $1 AND response_id = $2',
         [evidenceId, responseId]
       );
+
+      // Best-effort removal of the file on disk (ignore if already gone).
+      if (evidence.rows.length > 0 && evidence.rows[0].file_path) {
+        fs.promises.unlink(evidence.rows[0].file_path).catch((err) => {
+          if (err.code !== 'ENOENT') {
+            logger.error('Failed to delete evidence file from disk:', err);
+          }
+        });
+      }
 
       res.json({
         success: true,
@@ -1049,6 +1054,8 @@ export class AuditController {
   exportToWord = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+
+      await assertAuditAccess(id, req);
 
       // Get audit details
       const auditResult = await db.query(
@@ -1234,7 +1241,7 @@ export class AuditController {
                       new ImageRun({
                         data: imageData,
                         transformation: { width, height },
-                        type: 'png',
+                        type: getImageType(photo.fileType, photo.filePath),
                       }),
                     ],
                     alignment: AlignmentType.CENTER,
@@ -1391,14 +1398,17 @@ export class AuditController {
     try {
       const { id } = req.params;
 
-      // Get audit details with project info
+      await assertAuditAccess(id, req);
+
+      // Get audit details with project info (LEFT JOIN so an audit whose package
+      // has no project still resolves instead of a misleading 404)
       const auditResult = await db.query(
         `SELECT a.*, p.code as package_code, p.name as package_name,
                 pr.name as project_name, pr.client_name,
                 u.name as auditor_name
          FROM audits a
          JOIN packages p ON a.package_id = p.id
-         JOIN projects pr ON p.project_id = pr.id
+         LEFT JOIN projects pr ON p.project_id = pr.id
          LEFT JOIN users u ON a.auditor_id = u.id
          WHERE a.id = $1`,
         [id]
@@ -1596,7 +1606,7 @@ export class AuditController {
                   new ImageRun({
                     data: imageInfo.data,
                     transformation: { width: scaled.width, height: scaled.height },
-                    type: 'png',
+                    type: getImageType(photo.fileType, photo.filePath),
                   }),
                 ],
               });
@@ -1638,9 +1648,10 @@ export class AuditController {
           );
         }
 
-        // Determine risk level: Critical -> NC 1, Major/Minor -> NC 2
+        // Determine risk level: High/Critical -> NC 1, Major/Minor -> NC 2
+        // (unified with exportToWord's mapping)
         const riskRating = response.risk_rating || 'Major';
-        const isNC1 = riskRating === 'Critical';
+        const isNC1 = riskRating === 'Critical' || riskRating === 'High';
         const riskLevelText = isNC1 ? 'NC 1' : 'NC 2';
         const riskColor = isNC1 ? 'FF0000' : 'FF8C00'; // Red for NC1, Orange for NC2
 
@@ -1981,6 +1992,8 @@ export class AuditController {
     try {
       const { id } = req.params;
 
+      await assertAuditAccess(id, req);
+
       const result = await db.query(
         `SELECT ac.*, u.name as user_name, u.email as user_email
          FROM audit_comments ac
@@ -2023,6 +2036,8 @@ export class AuditController {
         throw new AppError('Comment is required', 400);
       }
 
+      await assertAuditAccess(id, req);
+
       const result = await db.query(
         `INSERT INTO audit_comments (audit_id, user_id, comment, comment_type, is_internal)
          VALUES ($1, $2, $3, $4, $5)
@@ -2049,6 +2064,8 @@ export class AuditController {
   deleteAuditComment = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id, commentId } = req.params;
+
+      await assertAuditAccess(id, req);
 
       // Only allow deletion by comment author or admin
       const commentResult = await db.query(
@@ -2080,6 +2097,8 @@ export class AuditController {
   getAuditAttachments = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+
+      await assertAuditAccess(id, req);
 
       const result = await db.query(
         `SELECT aa.*, u.name as uploader_name
@@ -2120,6 +2139,8 @@ export class AuditController {
         throw new AppError('No file uploaded', 400);
       }
 
+      await assertAuditAccess(id, req);
+
       const result = await db.query(
         `INSERT INTO audit_attachments (audit_id, file_name, file_path, file_type, file_size, description, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -2156,6 +2177,8 @@ export class AuditController {
     try {
       const { id, attachmentId } = req.params;
 
+      await assertAuditAccess(id, req);
+
       // Check if attachment exists
       const attachmentResult = await db.query(
         'SELECT * FROM audit_attachments WHERE id = $1 AND audit_id = $2',
@@ -2188,6 +2211,8 @@ export class AuditController {
     try {
       const { id } = req.params;
       const { responseId } = req.query;
+
+      await assertAuditAccess(id, req);
 
       let query = `
         SELECT arh.*, ai.sr_no, ai.audit_point, s.name as section_name
