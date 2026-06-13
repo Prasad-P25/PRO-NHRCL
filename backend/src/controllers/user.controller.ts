@@ -276,4 +276,70 @@ export class UserController {
       next(error);
     }
   };
+
+  /**
+   * Permanently delete a user — but ONLY if they have no audit-trail footprint.
+   * A user who has conducted/approved audits, saved responses, verified CAPAs,
+   * entered KPIs, etc. can never be erased (legal audit trail + FK integrity);
+   * the caller is told to deactivate instead. Safe for unused/test accounts.
+   */
+  deleteUserPermanent = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const userId = parseInt(id, 10);
+
+      if (Number.isNaN(userId)) {
+        throw new AppError('Invalid user id', 400);
+      }
+      if (req.user && req.user.id === userId) {
+        throw new AppError('You cannot delete your own account', 400);
+      }
+
+      // Make sure the user exists
+      const exists = await db.query('SELECT id, name FROM users WHERE id = $1', [userId]);
+      if (exists.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+
+      // Count every reference that represents real activity/history
+      const refs = await db.query(
+        `SELECT
+           (SELECT count(*) FROM audits WHERE auditor_id=$1 OR reviewer_id=$1 OR approved_by=$1)
+         + (SELECT count(*) FROM audit_responses WHERE updated_by=$1)
+         + (SELECT count(*) FROM capa WHERE verified_by=$1)
+         + (SELECT count(*) FROM audit_comments WHERE user_id=$1)
+         + (SELECT count(*) FROM audit_attachments WHERE uploaded_by=$1)
+         + (SELECT count(*) FROM audit_evidences WHERE uploaded_by=$1)
+         + (SELECT count(*) FROM kpi_entries WHERE entered_by=$1)
+         + (SELECT count(*) FROM maturity_assessments WHERE assessor_id=$1)
+         + (SELECT count(*) FROM audit_response_history WHERE changed_by=$1)
+         + (SELECT count(*) FROM audit_logs WHERE user_id=$1)
+         + (SELECT count(*) FROM scheduled_reports WHERE created_by=$1)
+         + (SELECT count(*) FROM generated_reports WHERE generated_by=$1)
+         + (SELECT count(*) FROM projects WHERE created_by=$1) AS total`,
+        [userId]
+      );
+
+      if (parseInt(refs.rows[0].total, 10) > 0) {
+        throw new AppError(
+          'This user has audit/activity history and cannot be permanently deleted. Deactivate them instead.',
+          409
+        );
+      }
+
+      // Clean delete: null out notifications this user SENT to others, then
+      // delete the user (their own notifications + project assignments cascade).
+      await db.transaction(async (client) => {
+        await client.query('UPDATE notifications SET from_user_id = NULL WHERE from_user_id = $1', [userId]);
+        await client.query('DELETE FROM users WHERE id = $1', [userId]);
+      });
+
+      res.json({
+        success: true,
+        message: 'User permanently deleted',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

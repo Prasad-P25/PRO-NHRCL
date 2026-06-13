@@ -103,6 +103,12 @@ export const settingsService = {
     return response.data;
   },
 
+  // Permanently remove a user (only succeeds if they have no audit history)
+  deleteUserPermanent: async (id: number): Promise<ApiResponse<void>> => {
+    const response = await api.delete<ApiResponse<void>>(`/users/${id}/permanent`);
+    return response.data;
+  },
+
   // ========== Packages ==========
   getPackages: async (): Promise<ApiResponse<Package[]>> => {
     const response = await api.get<ApiResponse<Package[]>>('/packages');

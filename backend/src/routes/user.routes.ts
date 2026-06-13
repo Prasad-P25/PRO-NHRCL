@@ -38,4 +38,7 @@ router.put('/:id', authorize('Super Admin'), userController.updateUser);
 
 router.delete('/:id', authorize('Super Admin'), userController.deleteUser);
 
+// Permanent (hard) delete — only succeeds for users with no audit history
+router.delete('/:id/permanent', authorize('Super Admin'), userController.deleteUserPermanent);
+
 export default router;

@@ -8,7 +8,9 @@ import {
   UserCheck,
   UserX,
   Users,
+  Trash2,
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +56,7 @@ export function UserManagementPage() {
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
   const [formData, setFormData] = useState<Partial<CreateUserData>>({});
   const [deleteUserId, setDeleteUserId] = useState<number | null>(null);
+  const [permanentDeleteUser, setPermanentDeleteUser] = useState<UserWithRole | null>(null);
 
   // Fetch users
   const { data: usersData, isLoading } = useQuery({
@@ -108,6 +111,25 @@ export function UserManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteUserId(null);
+    },
+  });
+
+  // Permanent delete mutation (only works for users with no audit history)
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) => settingsService.deleteUserPermanent(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setPermanentDeleteUser(null);
+      toast({ title: 'User deleted', description: 'The user was permanently removed.' });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Cannot delete permanently',
+        description:
+          err?.response?.data?.message ||
+          'This user has activity history. Deactivate them instead.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -316,12 +338,21 @@ export function UserManagementPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleToggleActive(user)}
+                            title={user.isActive ? 'Deactivate' : 'Activate'}
                           >
                             {user.isActive ? (
                               <UserX className="h-4 w-4 text-red-500" />
                             ) : (
                               <UserCheck className="h-4 w-4 text-green-500" />
                             )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setPermanentDeleteUser(user)}
+                            title="Delete permanently"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
                       </TableCell>
@@ -492,6 +523,32 @@ export function UserManagementPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deactivating...' : 'Deactivate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Delete Confirmation Dialog */}
+      <Dialog open={permanentDeleteUser !== null} onOpenChange={() => setPermanentDeleteUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User Permanently</DialogTitle>
+            <DialogDescription>
+              This permanently removes <strong>{permanentDeleteUser?.name}</strong> and cannot be
+              undone. It only works if the user has no audit history (audits, CAPAs, KPI entries,
+              etc.). If they do, you'll be told to deactivate them instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPermanentDeleteUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => permanentDeleteUser && permanentDeleteMutation.mutate(permanentDeleteUser.id)}
+              disabled={permanentDeleteMutation.isPending}
+            >
+              {permanentDeleteMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
             </Button>
           </DialogFooter>
         </DialogContent>
