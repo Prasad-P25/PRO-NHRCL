@@ -228,20 +228,31 @@ export class ProjectController {
     try {
       const { id } = req.params;
 
-      // Check if project has packages
+      // Only ACTIVE packages should block deletion. Packages are soft-deleted by
+      // setting their status (e.g. 'Inactive'/'Deleted') and remain in the table,
+      // so counting all statuses would block a project whose packages the user
+      // already removed.
       const packageCheck = await db.query(
-        `SELECT COUNT(*) FROM packages WHERE project_id = $1`,
+        `SELECT COUNT(*) FROM packages WHERE project_id = $1 AND status = 'Active'`,
         [id]
       );
 
       if (parseInt(packageCheck.rows[0].count) > 0) {
-        throw new AppError('Cannot delete project with existing packages. Remove packages first.', 400);
+        throw new AppError('Cannot delete project with active packages. Remove packages first.', 400);
       }
 
-      await db.query(
-        `UPDATE projects SET status = 'Deleted', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [id]
-      );
+      // Soft-delete the project and cascade soft-delete any remaining (already
+      // inactive) packages so nothing dangles under a deleted project.
+      await db.transaction(async (client) => {
+        await client.query(
+          `UPDATE packages SET status = 'Deleted' WHERE project_id = $1 AND status <> 'Deleted'`,
+          [id]
+        );
+        await client.query(
+          `UPDATE projects SET status = 'Deleted', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [id]
+        );
+      });
 
       res.json({
         success: true,
