@@ -4,6 +4,36 @@ import bcrypt from 'bcryptjs';
 import { db } from '../database/connection';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
+import type { PoolClient } from 'pg';
+
+/**
+ * The app is project-scoped: on login a user loads the projects they're assigned
+ * to. A user who has a package but no project assignment can't see anything. So
+ * whenever a user is given a package, make sure they're also assigned to that
+ * package's project (as their default if they don't have one yet).
+ */
+const ensureProjectAssignmentForPackage = async (
+  client: PoolClient,
+  userId: number,
+  packageId: number
+) => {
+  const pkg = await client.query('SELECT project_id FROM packages WHERE id = $1', [packageId]);
+  if (pkg.rows.length === 0) return;
+  const projectId = pkg.rows[0].project_id;
+
+  const hasDefault = await client.query(
+    'SELECT 1 FROM user_project_assignments WHERE user_id = $1 AND is_default = true',
+    [userId]
+  );
+  const isDefault = hasDefault.rows.length === 0;
+
+  await client.query(
+    `INSERT INTO user_project_assignments (user_id, project_id, is_default)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, project_id) DO NOTHING`,
+    [userId, projectId, isDefault]
+  );
+};
 
 export class UserController {
   getProfile = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -168,16 +198,24 @@ export class UserController {
 
       const passwordHash = await bcrypt.hash(password, 12);
 
-      const result = await db.query(
-        `INSERT INTO users (email, password_hash, name, role_id, package_id, phone)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, email, name, role_id, package_id, is_active, created_at`,
-        [email, passwordHash, name, roleId, packageId || null, phone || null]
-      );
+      const newUser = await db.transaction(async (client) => {
+        const result = await client.query(
+          `INSERT INTO users (email, password_hash, name, role_id, package_id, phone)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, email, name, role_id, package_id, is_active, created_at`,
+          [email, passwordHash, name, roleId, packageId || null, phone || null]
+        );
+        const user = result.rows[0];
+        // Auto-assign the package's project so the user can actually log in and see it
+        if (packageId) {
+          await ensureProjectAssignmentForPackage(client, user.id, packageId);
+        }
+        return user;
+      });
 
       res.status(201).json({
         success: true,
-        data: result.rows[0],
+        data: newUser,
       });
     } catch (error) {
       next(error);
@@ -237,17 +275,23 @@ export class UserController {
       const { id } = req.params;
       const { name, roleId, packageId, phone, isActive } = req.body;
 
-      await db.query(
-        `UPDATE users SET
-         name = COALESCE($1, name),
-         role_id = COALESCE($2, role_id),
-         package_id = $3,
-         phone = COALESCE($4, phone),
-         is_active = COALESCE($5, is_active),
-         updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6`,
-        [name, roleId, packageId || null, phone, isActive, id]
-      );
+      await db.transaction(async (client) => {
+        await client.query(
+          `UPDATE users SET
+           name = COALESCE($1, name),
+           role_id = COALESCE($2, role_id),
+           package_id = $3,
+           phone = COALESCE($4, phone),
+           is_active = COALESCE($5, is_active),
+           updated_at = CURRENT_TIMESTAMP
+           WHERE id = $6`,
+          [name, roleId, packageId || null, phone, isActive, id]
+        );
+        // Keep project access in sync when a package is assigned via edit
+        if (packageId) {
+          await ensureProjectAssignmentForPackage(client, parseInt(id, 10), packageId);
+        }
+      });
 
       res.json({
         success: true,
