@@ -314,6 +314,17 @@ export class AuditController {
         throw new AppError('At least one category must be selected', 400);
       }
 
+      // Enforce audit-type scope so the type always matches the real coverage:
+      //  - Focused = exactly one category (single-category deep-dive)
+      //  - Partial = two or more categories (a subset)
+      //  - Full    = all categories (selected automatically by the UI)
+      if (auditType === 'Focused' && categoryIds.length !== 1) {
+        throw new AppError('A Focused audit must cover exactly one category.', 400);
+      }
+      if (auditType === 'Partial' && categoryIds.length < 2) {
+        throw new AppError('A Partial audit must cover at least two categories.', 400);
+      }
+
       // Get package code and verify it belongs to the caller's project
       const packageResult = await db.query('SELECT code, project_id FROM packages WHERE id = $1', [packageId]);
       if (packageResult.rows.length === 0) {

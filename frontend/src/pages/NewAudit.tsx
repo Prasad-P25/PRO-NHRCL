@@ -68,12 +68,21 @@ export function NewAuditPage() {
         .reduce((sum, cat) => sum + (cat.itemCount || 0), 0);
 
   const handleCategoryToggle = (categoryId: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      categoryIds: prev.categoryIds.includes(categoryId)
-        ? prev.categoryIds.filter((id) => id !== categoryId)
-        : [...prev.categoryIds, categoryId],
-    }));
+    setFormData((prev) => {
+      // Focused audit = exactly one category: a new pick replaces the previous
+      if (prev.auditType === 'Focused') {
+        return {
+          ...prev,
+          categoryIds: prev.categoryIds.includes(categoryId) ? [] : [categoryId],
+        };
+      }
+      return {
+        ...prev,
+        categoryIds: prev.categoryIds.includes(categoryId)
+          ? prev.categoryIds.filter((id) => id !== categoryId)
+          : [...prev.categoryIds, categoryId],
+      };
+    });
   };
 
   const handleSelectAll = () => {
@@ -100,7 +109,19 @@ export function NewAuditPage() {
 
   // Only require package selection to proceed - date and contractor rep are optional
   const canProceedStep1 = formData.packageId > 0;
-  const canProceedStep2 = formData.auditType === 'Full' || formData.categoryIds.length > 0;
+  // Enforce the scope rule per audit type
+  const canProceedStep2 =
+    formData.auditType === 'Full'
+      ? true
+      : formData.auditType === 'Focused'
+      ? formData.categoryIds.length === 1
+      : formData.categoryIds.length >= 2; // Partial
+  const categoryRuleHint =
+    formData.auditType === 'Focused'
+      ? 'Pick exactly one category for a Focused audit.'
+      : formData.auditType === 'Partial'
+      ? 'Pick at least two categories for a Partial audit.'
+      : '';
 
   // For Full audits, go directly to Review (skip category selection)
   const handleNextFromStep1 = () => {
@@ -226,8 +247,8 @@ export function NewAuditPage() {
               <div className="space-y-2">
                 {[
                   { value: 'Full', label: 'Full Audit', desc: `All ${categoriesArray.length} categories (~${categoriesArray.reduce((sum, cat) => sum + (cat.itemCount || 0), 0)} items) - Skip category selection` },
-                  { value: 'Partial', label: 'Partial Audit', desc: 'Select specific categories' },
-                  { value: 'Focused', label: 'Focused Audit', desc: 'Single category deep-dive' },
+                  { value: 'Partial', label: 'Partial Audit', desc: 'Select 2 or more categories' },
+                  { value: 'Focused', label: 'Focused Audit', desc: 'Exactly one category - deep dive' },
                 ].map((type) => (
                   <label
                     key={type.value}
@@ -246,6 +267,8 @@ export function NewAuditPage() {
                         setFormData((prev) => ({
                           ...prev,
                           auditType: e.target.value as AuditType,
+                          // Reset category selection: each type has different rules
+                          categoryIds: [],
                         }))
                       }
                       className="mt-1"
@@ -318,14 +341,22 @@ export function NewAuditPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleSelectAll}>
-                Select All
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDeselectAll}>
-                Deselect All
-              </Button>
-            </div>
+            {categoryRuleHint && (
+              <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                {categoryRuleHint}
+              </div>
+            )}
+            {/* "Select All" only makes sense for Partial (multi-category) */}
+            {formData.auditType === 'Partial' && (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleSelectAll}>
+                  Select All
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleDeselectAll}>
+                  Deselect All
+                </Button>
+              </div>
+            )}
 
             <div className="grid gap-2">
               {categoriesArray.map((category) => (
