@@ -20,6 +20,7 @@ import { ProjectCreatePage } from '@/pages/ProjectCreate';
 import { ProjectSettingsPage } from '@/pages/ProjectSettings';
 import { ProjectDashboardPage } from '@/pages/ProjectDashboard';
 import { CAPAAnalyticsPage } from '@/pages/CAPAAnalytics';
+import { RoleGuard } from '@/components/layout/RoleGuard';
 import { useAuthStore } from '@/store/authStore';
 
 function App() {
@@ -69,16 +70,16 @@ function App() {
         <Route path="/maturity/new" element={<MaturityListPage />} />
         <Route path="/maturity/:id" element={<MaturityAssessmentPage />} />
 
-        {/* Projects */}
-        <Route path="/projects" element={<ProjectListPage />} />
-        <Route path="/projects/new" element={<ProjectCreatePage />} />
-        <Route path="/projects/dashboard" element={<ProjectDashboardPage />} />
-        <Route path="/projects/:id/settings" element={<ProjectSettingsPage />} />
+        {/* Projects (Super Admin only) */}
+        <Route path="/projects" element={<RoleGuard roles={['Super Admin']}><ProjectListPage /></RoleGuard>} />
+        <Route path="/projects/new" element={<RoleGuard roles={['Super Admin']}><ProjectCreatePage /></RoleGuard>} />
+        <Route path="/projects/dashboard" element={<RoleGuard roles={['Super Admin']}><ProjectDashboardPage /></RoleGuard>} />
+        <Route path="/projects/:id/settings" element={<RoleGuard roles={['Super Admin']}><ProjectSettingsPage /></RoleGuard>} />
 
-        {/* Settings */}
-        <Route path="/settings/users" element={<UserManagementPage />} />
-        <Route path="/settings/roles" element={<RoleManagementPage />} />
-        <Route path="/settings/checklist" element={<ChecklistManagementPage />} />
+        {/* Settings (Super Admin only) */}
+        <Route path="/settings/users" element={<RoleGuard roles={['Super Admin']}><UserManagementPage /></RoleGuard>} />
+        <Route path="/settings/roles" element={<RoleGuard roles={['Super Admin']}><RoleManagementPage /></RoleGuard>} />
+        <Route path="/settings/checklist" element={<RoleGuard roles={['Super Admin']}><ChecklistManagementPage /></RoleGuard>} />
 
         {/* Profile */}
         <Route path="/profile" element={<ProfilePage />} />

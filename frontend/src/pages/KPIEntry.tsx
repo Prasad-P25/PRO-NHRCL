@@ -9,6 +9,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
+import { toast } from '@/hooks/use-toast';
 import { ProjectGuard } from '@/components/ProjectGuard';
 import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -134,9 +135,30 @@ export function KPIEntryPage() {
     mutationFn: async (entries: CreateKPIEntryForm[]) => {
       return kpiService.saveEntries(entries);
     },
-    onSuccess: () => {
-      setLastSaved(new Date());
+    onSuccess: (result) => {
+      const failed = result.data?.failed || [];
       queryClient.invalidateQueries({ queryKey: ['kpiEntries'] });
+      if (failed.length === 0) {
+        setLastSaved(new Date());
+        toast({ title: 'Saved', description: `${result.data.savedCount} indicator(s) saved.` });
+      } else {
+        // Partial failure: tell the user exactly which rows did not save
+        const names = failed
+          .map((f) => indicators.find((i) => i.id === f.indicatorId)?.name || `#${f.indicatorId}`)
+          .join(', ');
+        toast({
+          title: `Saved ${result.data.savedCount}, ${failed.length} failed`,
+          description: `These did not save (re-check and retry): ${names}`,
+          variant: 'destructive',
+        });
+      }
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Save failed',
+        description: err?.response?.data?.message || 'Could not save KPI entries.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -262,6 +284,7 @@ export function KPIEntryPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={data.targetValue}
                   onChange={(e) => updateField(indicator.id, 'targetValue', e.target.value)}
                   className="w-24"
@@ -273,6 +296,7 @@ export function KPIEntryPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={data.actualValue}
                   onChange={(e) => updateField(indicator.id, 'actualValue', e.target.value)}
                   className="w-24"
@@ -285,6 +309,7 @@ export function KPIEntryPage() {
                   <TableCell>
                     <Input
                       type="number"
+                      min="0"
                       value={data.manHoursWorked}
                       onChange={(e) => updateField(indicator.id, 'manHoursWorked', e.target.value)}
                       className="w-28"
@@ -295,6 +320,7 @@ export function KPIEntryPage() {
                   <TableCell>
                     <Input
                       type="number"
+                      min="0"
                       value={data.incidentsCount}
                       onChange={(e) => updateField(indicator.id, 'incidentsCount', e.target.value)}
                       className="w-20"

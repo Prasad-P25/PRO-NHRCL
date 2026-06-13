@@ -29,6 +29,7 @@ import {
   ThumbsDown,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -214,6 +215,8 @@ export function AuditExecutionPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['audits'] });
+      // Refresh this audit's detail so the page reflects the new "Pending Review" status
+      queryClient.invalidateQueries({ queryKey: ['audit', auditId] });
       // Count CAPA items
       const capaItems = Object.values(responses).filter(r => r.capaRequired).length;
       const ncItems = Object.values(responses).filter(r => r.status === 'NC').length;
@@ -284,8 +287,6 @@ export function AuditExecutionPage() {
     }
 
     const autoSaveInterval = setInterval(() => {
-      console.log('Auto-save check:', { hasUnsaved: hasUnsavedChangesRef.current, isSaving: isSavingRef.current });
-
       if (hasUnsavedChangesRef.current && !isSavingRef.current) {
         const currentResponses = responsesRef.current;
         const responsesToSave: AuditResponseForm[] = Object.values(currentResponses)
@@ -300,12 +301,10 @@ export function AuditExecutionPage() {
           }));
 
         if (responsesToSave.length > 0) {
-          console.log('Auto-saving', responsesToSave.length, 'responses...');
           setIsSaving(true);
           saveMutation.mutateAsync(responsesToSave)
             .then(() => {
               setHasUnsavedChanges(false);
-              console.log('Auto-save complete');
             })
             .catch((err) => {
               console.error('Auto-save failed:', err);
@@ -315,12 +314,24 @@ export function AuditExecutionPage() {
             });
         }
       }
-    }, 15000); // 15 seconds (for testing, can increase to 30000 for production)
+    }, 30000); // 30 seconds
 
     return () => {
       clearInterval(autoSaveInterval);
     };
   }, [autoSaveEnabled, auditData?.status, saveMutation]);
+
+  // Warn before leaving (tab close / reload) with unsaved audit responses
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChangesRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const isLoading = auditLoading || responsesLoading || categoriesLoading;
 
@@ -446,8 +457,19 @@ export function AuditExecutionPage() {
   };
 
   const handleSubmit = async () => {
-    // Save first, then submit
-    await handleSave();
+    // Save first; only submit if the save succeeded. Surface save failures
+    // instead of letting the rejection escape unhandled (which silently
+    // skipped the submit).
+    try {
+      await handleSave();
+    } catch (err: any) {
+      toast({
+        title: 'Save failed',
+        description: err?.response?.data?.message || 'Could not save responses before submitting. Please try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
     submitMutation.mutate();
   };
 

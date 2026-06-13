@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,13 +21,23 @@ import projectService from '@/services/project.service';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
+// Only allow same-origin relative redirect targets (prevent open redirect)
+const safeRedirect = (target: string | null): string => {
+  if (target && target.startsWith('/') && !target.startsWith('//')) {
+    return target;
+  }
+  return '/';
+};
+
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = safeRedirect(searchParams.get('redirect'));
   const { setAuth } = useAuthStore();
   const { setCurrentProject, setAvailableProjects } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
@@ -74,7 +84,7 @@ export function LoginPage() {
         setAuth(response.data.user, response.data.token);
         // Load and set default project after login
         await loadAndSetDefaultProject();
-        navigate('/');
+        navigate(redirectTo);
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
@@ -98,29 +108,6 @@ export function LoginPage() {
       setResetError(err.response?.data?.message || 'Failed to send reset link. Please try again.');
     } finally {
       setIsResetting(false);
-    }
-  };
-
-  // Demo login function - uses real admin credentials
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await authService.login({
-        email: 'admin@protecther.com',
-        password: 'admin123',
-      });
-      if (response.success) {
-        setAuth(response.data.user, response.data.token);
-        // Load and set default project after login
-        await loadAndSetDefaultProject();
-        navigate('/');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Demo login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -170,11 +157,7 @@ export function LoginPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" className="rounded border-gray-300" />
-                Remember me
-              </label>
+            <div className="flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -191,24 +174,6 @@ export function LoginPage() {
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? 'Signing in...' : 'Sign In'}
-            </Button>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="bg-background px-2 text-muted-foreground">Or</span>
-              </div>
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={handleDemoLogin}
-            >
-              Continue with Demo Account
             </Button>
           </form>
 

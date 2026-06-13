@@ -224,12 +224,10 @@ export function Header() {
                     variant="ghost"
                     size="sm"
                     className="w-full text-xs"
-                    onClick={() => {
-                      navigate('/notifications');
-                      setNotifOpen(false);
-                    }}
+                    disabled={markAllReadMutation.isPending || unreadCount === 0}
+                    onClick={() => markAllReadMutation.mutate()}
                   >
-                    View all notifications
+                    Mark all as read
                   </Button>
                 </div>
               )}
@@ -260,7 +258,7 @@ export function Header() {
                 Profile
               </DropdownMenuItem>
               {(user?.role?.name === 'Super Admin' || (user as any)?.roleName === 'Super Admin') && (
-                <DropdownMenuItem onClick={() => navigate('/settings')}>
+                <DropdownMenuItem onClick={() => navigate('/settings/users')}>
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </DropdownMenuItem>

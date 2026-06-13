@@ -257,13 +257,15 @@ export const exportAuditReportPDF = (options: AuditReportOptions): void => {
       doc.text(section.name, 14, yPos);
       yPos += 3;
 
-      // Items table
+      // Items table — keep the FULL audit point and observation text; autoTable
+      // wraps within the column width, so this is an official compliance record
+      // with nothing cut off.
       const tableData = section.items.map((item) => [
         item.srNo.toString(),
-        item.auditPoint.length > 60 ? item.auditPoint.substring(0, 57) + '...' : item.auditPoint,
+        item.auditPoint,
         item.status || '-',
         item.riskRating || '-',
-        item.observation ? (item.observation.length > 30 ? item.observation.substring(0, 27) + '...' : item.observation) : '-',
+        item.observation || '-',
       ]);
 
       autoTable(doc, {

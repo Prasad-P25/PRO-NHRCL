@@ -109,15 +109,32 @@ export const kpiService = {
     return response.data;
   },
 
-  // Bulk save entries for a package/period
-  saveEntries: async (entries: CreateKPIEntryForm[]): Promise<ApiResponse<{ savedCount: number }>> => {
-    // Save entries one by one (API uses upsert)
-    const results = await Promise.all(
+  // Bulk save entries for a package/period. Uses allSettled so one bad row does
+  // not discard the others; reports which indicators failed.
+  saveEntries: async (
+    entries: CreateKPIEntryForm[]
+  ): Promise<ApiResponse<{ savedCount: number; failed: { indicatorId: number; message: string }[] }>> => {
+    const results = await Promise.allSettled(
       entries.map((entry) => api.post<ApiResponse<KPIEntry>>('/kpi/entries', entry))
     );
+
+    const failed: { indicatorId: number; message: string }[] = [];
+    let savedCount = 0;
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        savedCount += 1;
+      } else {
+        const err: any = result.reason;
+        failed.push({
+          indicatorId: entries[index].indicatorId,
+          message: err?.response?.data?.message || 'Failed to save',
+        });
+      }
+    });
+
     return {
-      success: true,
-      data: { savedCount: results.length },
+      success: failed.length === 0,
+      data: { savedCount, failed },
     };
   },
 

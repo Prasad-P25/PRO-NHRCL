@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { format as formatDate } from 'date-fns';
 import {
   Plus,
@@ -48,12 +48,14 @@ import type { Package } from '@/types';
 
 export function MaturityListPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const currentProject = useAppStore((state) => state.currentProject);
 
   const [selectedPackageId, setSelectedPackageId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [showNewDialog, setShowNewDialog] = useState(false);
+  // The "/maturity/new" sidebar link opens the create dialog on this list page
+  const [showNewDialog, setShowNewDialog] = useState(location.pathname === '/maturity/new');
   const [newPackageId, setNewPackageId] = useState<string>('');
   const [newDate, setNewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [deleteId, setDeleteId] = useState<number | null>(null);

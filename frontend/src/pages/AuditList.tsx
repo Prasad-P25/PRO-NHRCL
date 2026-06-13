@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation } from 'react-router-dom';
 import { Plus, Search, Eye, Edit, Trash2, Loader2, RefreshCw, FileDown, Building2 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
+import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 import { ProjectGuard } from '@/components/ProjectGuard';
 import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -39,8 +41,21 @@ const statusOptions: { value: string; label: string }[] = [
 
 export function AuditListPage() {
   const currentProject = useAppStore((state) => state.currentProject);
+  const currentUser = useAuthStore((state) => state.user);
+  const queryClient = useQueryClient();
+  const location = useLocation();
+
+  // Route-aware variants: /audits/my (current user's audits) and
+  // /audits/pending (awaiting review) actually filter, not just relabel.
+  const variant = location.pathname.endsWith('/my')
+    ? 'my'
+    : location.pathname.endsWith('/pending')
+    ? 'pending'
+    : 'all';
+  const pageTitle = variant === 'my' ? 'My Audits' : variant === 'pending' ? 'Pending Review' : 'Audits';
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(variant === 'pending' ? 'Pending Review' : 'all');
   const [exportingId, setExportingId] = useState<number | null>(null);
 
   const handleExportWord = async (auditId: number) => {
@@ -48,22 +63,50 @@ export function AuditListPage() {
     try {
       await auditService.exportToWord(auditId);
     } catch (error) {
-      console.error('Export failed:', error);
-      alert('Failed to export audit. Please try again.');
+      toast({
+        title: 'Export failed',
+        description: 'Failed to export audit. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setExportingId(null);
     }
   };
 
+  const myAuditorId = variant === 'my' ? (currentUser as any)?.id : undefined;
+
   const { data: auditsData, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['audits', statusFilter, currentProject?.id],
+    queryKey: ['audits', statusFilter, myAuditorId, currentProject?.id],
     queryFn: async () => {
-      const params = statusFilter !== 'all' ? { status: statusFilter } : {};
+      const params: { status?: string; auditorId?: number } = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (myAuditorId) params.auditorId = myAuditorId;
       const response = await auditService.getAudits(params);
       return response.data;
     },
     enabled: !!currentProject,
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => auditService.deleteAudit(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audits'] });
+      toast({ title: 'Audit deleted', description: 'The draft audit has been removed.' });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Delete failed',
+        description: err?.response?.data?.message || 'Could not delete the audit.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleDelete = (auditId: number, auditNumber: string) => {
+    if (window.confirm(`Delete draft audit ${auditNumber}? This cannot be undone.`)) {
+      deleteMutation.mutate(auditId);
+    }
+  };
 
   const audits = auditsData || [];
 
@@ -120,7 +163,7 @@ export function AuditListPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Audits</h1>
+            <h1 className="text-3xl font-bold">{pageTitle}</h1>
             <p className="text-muted-foreground flex items-center gap-2">
               <Building2 className="h-4 w-4" />
               {currentProject?.name || 'Select a project'}
@@ -257,7 +300,13 @@ export function AuditListPage() {
                           </Button>
                         )}
                         {audit.status === 'Draft' && (
-                          <Button variant="ghost" size="icon">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(audit.id, audit.auditNumber)}
+                            disabled={deleteMutation.isPending}
+                            title="Delete draft audit"
+                          >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         )}

@@ -13,6 +13,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
+import { useAuthStore } from '@/store/authStore';
 import { ProjectGuard } from '@/components/ProjectGuard';
 import { ListPageSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -80,6 +81,7 @@ export function CAPAListPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const currentProject = useAppStore((state) => state.currentProject);
+  const currentUser = useAuthStore((state) => state.user);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => getInitialStatusFilter(location.pathname));
@@ -148,12 +150,24 @@ export function CAPAListPage() {
   const capas = capaData || [];
   const pageInfo = getPageTitle(location.pathname);
   const isOverduePage = location.pathname === '/capa/overdue';
+  const isMyPage = location.pathname === '/capa/my';
+  const currentUserName = (currentUser as any)?.name?.toLowerCase() || '';
+
+  // Start of today (local) — a CAPA due today is NOT overdue until tomorrow
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
 
   const filteredCAPAs = capas.filter((capa) => {
-    // Filter overdue CAPAs for the overdue page
+    // Filter overdue CAPAs for the overdue page (date-only comparison)
     if (isOverduePage) {
       if (capa.status === 'Closed') return false;
-      if (!capa.targetDate || new Date(capa.targetDate) >= new Date()) return false;
+      if (!capa.targetDate || new Date(capa.targetDate) >= startOfToday) return false;
+    }
+
+    // "My CAPAs": only those assigned to the current user
+    if (isMyPage) {
+      const assignee = capa.responsiblePerson?.toLowerCase() || '';
+      if (!currentUserName || assignee !== currentUserName) return false;
     }
 
     const search = searchTerm.toLowerCase();

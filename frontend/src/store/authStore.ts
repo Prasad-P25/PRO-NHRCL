@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@/types';
+import { useAppStore } from '@/store/appStore';
+import { queryClient } from '@/lib/queryClient';
 
 interface AuthState {
   user: User | null;
@@ -11,8 +13,24 @@ interface AuthState {
   updateUser: (user: Partial<User>) => void;
 }
 
-// Helper to clear app storage on logout
+// Helper to clear ALL of the previous user's state on logout/login: persisted
+// localStorage, the in-memory appStore (currentProject/availableProjects which
+// drive the X-Project-Id header), and the React Query cache.
 const clearAppStorage = () => {
+  // Reset in-memory project context so the next user never inherits it
+  try {
+    useAppStore.setState({ currentProject: null, availableProjects: [] });
+  } catch {
+    // ignore if store not initialized yet
+  }
+
+  // Drop all cached query data (dashboards, lists, notifications, etc.)
+  try {
+    queryClient.clear();
+  } catch {
+    // ignore
+  }
+
   const appStorage = localStorage.getItem('app-storage');
   if (appStorage) {
     try {
