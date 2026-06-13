@@ -171,6 +171,8 @@ describe('CAPA API', () => {
 
       mockDb.query.mockResolvedValueOnce({ rows: [mockSuperAdmin] } as any);
       mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+      // assertCAPAAccess (IDOR guard)
+      mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Open', corrective_action: null }] } as any);
       mockDb.query.mockResolvedValueOnce({
         rows: [{ ...sampleCAPA, audit_number: 'AUD-C1-2024-001', item_name: 'Safety signage check' }],
       } as any);

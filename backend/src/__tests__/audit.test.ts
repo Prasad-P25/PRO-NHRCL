@@ -191,6 +191,8 @@ describe('Audit API', () => {
 
       mockDb.query.mockResolvedValueOnce({ rows: [mockSuperAdmin] } as any);
       mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+      // assertAuditAccess (IDOR guard)
+      mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Draft', locked_at: null }] } as any);
       mockDb.query.mockResolvedValueOnce({
         rows: [{
           ...sampleAudit,
@@ -242,12 +244,14 @@ describe('Audit API', () => {
 
         mockDb.query.mockResolvedValueOnce({ rows: [mockPMCHead] } as any);
         mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+        // assertAuditAccess (IDOR guard)
+        mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Pending Review', locked_at: null }] } as any);
         // Get audit
         mockDb.query.mockResolvedValueOnce({
           rows: [{ ...sampleAudit, status: 'Pending Review' }],
         } as any);
-        // Update audit
-        mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+        // Update audit (rowCount 1 = transition allowed)
+        mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 1 } as any);
 
         const res = await request(app)
           .post('/api/v1/audits/1/approve')
@@ -277,10 +281,13 @@ describe('Audit API', () => {
 
         mockDb.query.mockResolvedValueOnce({ rows: [mockPMCHead] } as any);
         mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+        // assertAuditAccess (IDOR guard)
+        mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Pending Review', locked_at: null }] } as any);
         mockDb.query.mockResolvedValueOnce({
           rows: [{ ...sampleAudit, status: 'Pending Review' }],
         } as any);
-        mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+        // Update audit (rowCount 1 = transition allowed)
+        mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 1 } as any);
 
         const res = await request(app)
           .post('/api/v1/audits/1/reject')
@@ -307,6 +314,8 @@ describe('Audit API', () => {
 
       mockDb.query.mockResolvedValueOnce({ rows: [mockSuperAdmin] } as any);
       mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+      // assertAuditAccess (IDOR guard)
+      mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Draft', locked_at: null }] } as any);
       mockDb.query.mockResolvedValueOnce({
         rows: [
           { id: 1, item_id: 1, status: 'C', observation: 'All good' },
@@ -329,6 +338,8 @@ describe('Audit API', () => {
 
       mockDb.query.mockResolvedValueOnce({ rows: [mockSuperAdmin] } as any);
       mockDb.query.mockResolvedValueOnce({ rows: [] } as any);
+      // assertAuditAccess (IDOR guard)
+      mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, status: 'Draft', locked_at: null }] } as any);
       mockDb.query.mockResolvedValueOnce({
         rows: [{ id: 1, audit_id: 1, user_id: 1, comment: 'Good work!', created_at: new Date() }],
       } as any);

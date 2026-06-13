@@ -248,26 +248,31 @@ export class MaturityController {
       const { packageId, assessmentDate } = req.body;
       const assessorId = req.user!.id;
 
-      // Create assessment
-      const result = await db.query(
-        `INSERT INTO maturity_assessments (package_id, assessment_date, assessor_id, status)
-         VALUES ($1, $2, $3, 'Draft')
-         RETURNING id`,
-        [packageId, assessmentDate || new Date(), assessorId]
-      );
+      // Assessment header + all question rows must be created atomically, else a
+      // failure leaves an assessment that can never be fully scored/submitted.
+      const assessmentId = await db.transaction(async (client) => {
+        const result = await client.query(
+          `INSERT INTO maturity_assessments (package_id, assessment_date, assessor_id, status)
+           VALUES ($1, $2, $3, 'Draft')
+           RETURNING id`,
+          [packageId, assessmentDate || new Date(), assessorId]
+        );
 
-      const assessmentId = result.rows[0].id;
+        const newId = result.rows[0].id;
 
-      // Pre-populate responses from maturity model
-      for (const dimension of MATURITY_MODEL.dimensions) {
-        for (const q of dimension.questions) {
-          await db.query(
-            `INSERT INTO maturity_responses (assessment_id, dimension, question)
-             VALUES ($1, $2, $3)`,
-            [assessmentId, dimension.name, q.question]
-          );
+        // Pre-populate responses from maturity model
+        for (const dimension of MATURITY_MODEL.dimensions) {
+          for (const q of dimension.questions) {
+            await client.query(
+              `INSERT INTO maturity_responses (assessment_id, dimension, question)
+               VALUES ($1, $2, $3)`,
+              [newId, dimension.name, q.question]
+            );
+          }
         }
-      }
+
+        return newId;
+      });
 
       res.status(201).json({
         success: true,
@@ -295,6 +300,14 @@ export class MaturityController {
         return res.status(404).json({
           success: false,
           message: 'Assessment not found',
+        });
+      }
+
+      // A completed/submitted assessment is locked — scores cannot be changed
+      if (['Completed', 'Submitted'].includes(assessmentCheck.rows[0].status)) {
+        return res.status(409).json({
+          success: false,
+          message: 'This assessment has been submitted and can no longer be edited',
         });
       }
 
@@ -342,6 +355,21 @@ export class MaturityController {
     try {
       const { id } = req.params;
 
+      // Existence + already-submitted guard
+      const existing = await db.query(
+        'SELECT status FROM maturity_assessments WHERE id = $1',
+        [id]
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Assessment not found' });
+      }
+      if (['Completed', 'Submitted'].includes(existing.rows[0].status)) {
+        return res.status(409).json({
+          success: false,
+          message: 'Assessment has already been submitted',
+        });
+      }
+
       // Check completeness
       const incompleteResult = await db.query(
         `SELECT COUNT(*) as incomplete FROM maturity_responses
@@ -356,10 +384,18 @@ export class MaturityController {
         });
       }
 
-      await db.query(
-        `UPDATE maturity_assessments SET status = 'Completed' WHERE id = $1`,
+      // Only move forward from a non-submitted state
+      const updateResult = await db.query(
+        `UPDATE maturity_assessments SET status = 'Completed'
+         WHERE id = $1 AND status NOT IN ('Completed', 'Submitted')`,
         [id]
       );
+      if (updateResult.rowCount === 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Assessment has already been submitted',
+        });
+      }
 
       res.json({
         success: true,

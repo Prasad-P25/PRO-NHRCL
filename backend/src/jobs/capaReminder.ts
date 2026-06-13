@@ -27,6 +27,14 @@ export async function checkCapaReminders() {
       AND c.target_date < CURRENT_DATE
       AND r.name = 'Package Manager'
       AND pm.is_active = true
+      AND NOT EXISTS (
+        SELECT 1 FROM notifications n
+        WHERE n.user_id = pm.id
+        AND n.type = 'capa_overdue'
+        AND n.entity_type = 'capa'
+        AND n.entity_id = c.id
+        AND n.created_at >= CURRENT_DATE
+      )
     `);
 
     // Send overdue notifications in parallel
@@ -74,6 +82,14 @@ export async function checkCapaReminders() {
       AND c.target_date <= CURRENT_DATE + INTERVAL '3 days'
       AND r.name = 'Package Manager'
       AND pm.is_active = true
+      AND NOT EXISTS (
+        SELECT 1 FROM notifications n
+        WHERE n.user_id = pm.id
+        AND n.type = 'capa_due_soon'
+        AND n.entity_type = 'capa'
+        AND n.entity_id = c.id
+        AND n.created_at >= CURRENT_DATE
+      )
     `);
 
     // Send due-soon notifications in parallel

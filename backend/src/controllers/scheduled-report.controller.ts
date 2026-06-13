@@ -1,63 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { db } from '../database/connection';
 import { AuthRequest } from '../middleware/auth';
-import { logger } from '../utils/logger';
-import path from 'path';
 import fs from 'fs';
-
-interface ScheduledReport {
-  id: number;
-  name: string;
-  reportType: string;
-  format: string;
-  filters: Record<string, any>;
-  scheduleType: 'daily' | 'weekly' | 'monthly';
-  scheduleDay: number | null;
-  scheduleTime: string;
-  recipients: string[];
-  isActive: boolean;
-  lastRunAt: Date | null;
-  nextRunAt: Date | null;
-  createdBy: number;
-  createdAt: Date;
-}
-
-// Calculate next run date based on schedule
-function calculateNextRun(scheduleType: string, scheduleDay: number | null, scheduleTime: string): Date {
-  const now = new Date();
-  const [hours, minutes] = scheduleTime.split(':').map(Number);
-
-  const nextRun = new Date(now);
-  nextRun.setHours(hours, minutes, 0, 0);
-
-  switch (scheduleType) {
-    case 'daily':
-      if (nextRun <= now) {
-        nextRun.setDate(nextRun.getDate() + 1);
-      }
-      break;
-    case 'weekly':
-      // scheduleDay: 0 = Sunday, 1 = Monday, etc.
-      const targetDay = scheduleDay || 1;
-      const currentDay = nextRun.getDay();
-      let daysUntilTarget = targetDay - currentDay;
-      if (daysUntilTarget < 0 || (daysUntilTarget === 0 && nextRun <= now)) {
-        daysUntilTarget += 7;
-      }
-      nextRun.setDate(nextRun.getDate() + daysUntilTarget);
-      break;
-    case 'monthly':
-      // scheduleDay: 1-28 day of month
-      const targetDate = scheduleDay || 1;
-      nextRun.setDate(targetDate);
-      if (nextRun <= now) {
-        nextRun.setMonth(nextRun.getMonth() + 1);
-      }
-      break;
-  }
-
-  return nextRun;
-}
+import { calculateNextRun, generateAndRecordReport } from '../jobs/reportScheduler';
 
 export class ScheduledReportController {
   // Get all scheduled reports
@@ -253,7 +198,7 @@ export class ScheduledReportController {
           format || null,
           filters ? JSON.stringify(filters) : null,
           scheduleType || null,
-          scheduleDay,
+          newScheduleDay,
           scheduleTime || null,
           recipients ? JSON.stringify(recipients) : null,
           isActive,
@@ -345,21 +290,8 @@ export class ScheduledReportController {
 
       const schedule = existing.rows[0];
 
-      // Create a generated report entry
-      const generatedResult = await db.query(
-        `INSERT INTO generated_reports
-         (scheduled_report_id, name, report_type, format, filters, status, generated_by)
-         VALUES ($1, $2, $3, $4, $5, 'completed', $6)
-         RETURNING *`,
-        [
-          schedule.id,
-          schedule.name,
-          schedule.report_type,
-          schedule.format,
-          schedule.filters,
-          req.user!.id,
-        ]
-      );
+      // Actually generate the file and record the real outcome
+      const outcome = await generateAndRecordReport(schedule, req.user!.id);
 
       // Update last run timestamp
       await db.query(
@@ -367,11 +299,20 @@ export class ScheduledReportController {
         [id]
       );
 
+      if (outcome.status === 'failed') {
+        return res.status(500).json({
+          success: false,
+          message: `Report generation failed: ${outcome.error || 'unknown error'}`,
+          data: { id: outcome.generatedReportId, status: 'failed' },
+        });
+      }
+
       res.json({
         success: true,
         message: 'Report generated successfully',
         data: {
-          id: generatedResult.rows[0].id,
+          id: outcome.generatedReportId,
+          status: 'completed',
           reportType: schedule.report_type,
           format: schedule.format,
           filters: schedule.filters,
@@ -438,33 +379,36 @@ export class ScheduledReportController {
         return res.status(400).json({ success: false, message: 'Report type is required' });
       }
 
-      // Create a generated report entry
-      const result = await db.query(
-        `INSERT INTO generated_reports
-         (name, report_type, format, filters, status, generated_by, completed_at)
-         VALUES ($1, $2, $3, $4, 'completed', $5, CURRENT_TIMESTAMP)
-         RETURNING *`,
-        [
-          name || `${reportType} Report`,
-          reportType,
-          format || 'pdf',
-          JSON.stringify(filters || {}),
-          req.user!.id,
-        ]
+      // Actually generate the file (scoped to the caller's project) and record
+      // the real outcome instead of a fake "completed" row with no file.
+      const outcome = await generateAndRecordReport(
+        {
+          id: null,
+          name: name || `${reportType} Report`,
+          report_type: reportType,
+          format: format || 'xlsx',
+          filters: { ...(filters || {}), projectId: req.projectId },
+        },
+        req.user!.id
       );
 
-      const row = result.rows[0];
+      if (outcome.status === 'failed') {
+        return res.status(500).json({
+          success: false,
+          message: `Report generation failed: ${outcome.error || 'unknown error'}`,
+          data: { id: outcome.generatedReportId, status: 'failed' },
+        });
+      }
+
       res.json({
         success: true,
         message: 'Report generated successfully',
         data: {
-          id: row.id,
-          name: row.name,
-          reportType: row.report_type,
-          format: row.format,
-          filters: row.filters,
-          status: row.status,
-          createdAt: row.created_at,
+          id: outcome.generatedReportId,
+          name: name || `${reportType} Report`,
+          reportType,
+          format: format || 'xlsx',
+          status: 'completed',
         },
       });
     } catch (error) {

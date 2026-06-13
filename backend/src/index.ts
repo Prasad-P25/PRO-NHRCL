@@ -23,6 +23,7 @@ import scheduledReportRoutes from './routes/scheduled-report.routes';
 import { db } from './database/connection';
 import { logger } from './utils/logger';
 import { startCapaReminderJob } from './jobs/capaReminder';
+import { startReportSchedulerJob } from './jobs/reportScheduler';
 import { getJwtSecret } from './config/jwt';
 
 dotenv.config();
@@ -113,6 +114,7 @@ const startServer = async () => {
 
       // Start background jobs
       startCapaReminderJob();
+      startReportSchedulerJob();
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

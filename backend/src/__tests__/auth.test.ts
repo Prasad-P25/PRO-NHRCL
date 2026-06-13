@@ -192,6 +192,11 @@ describe('Auth API', () => {
     it('should refresh token successfully', async () => {
       const oldToken = jwt.sign({ userId: 1 }, process.env.JWT_SECRET!);
 
+      // Refresh now re-validates that the user still exists and is active
+      (db.query as jest.Mock).mockResolvedValueOnce({
+        rows: [{ id: 1, is_active: true, password_changed_at: null }],
+      });
+
       const res = await request(app)
         .post('/api/v1/auth/refresh')
         .set('Authorization', `Bearer ${oldToken}`);

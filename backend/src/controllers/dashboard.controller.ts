@@ -7,56 +7,72 @@ export class DashboardController {
     try {
       const projectId = req.projectId;
 
-      // Project filter clause for queries that join with packages
-      const projectFilter = projectId ? `AND p.project_id = ${projectId}` : '';
-      const projectFilterDirect = projectId
-        ? `JOIN packages p ON a.package_id = p.id WHERE p.project_id = ${projectId} AND`
-        : 'WHERE';
+      // Helper: build "[JOIN packages] ... AND p.project_id = $1" pieces, parameterized.
+      const pkgJoin = projectId ? 'JOIN packages p ON a.package_id = p.id' : '';
+      const pkgWhere = projectId ? 'AND p.project_id = $1' : '';
+      const pidParam: any[] = projectId ? [projectId] : [];
 
-      // Overall compliance
+      // Overall compliance (last 30 days)
       const complianceResult = await db.query(
         `SELECT
            COALESCE(AVG(a.compliance_percentage), 0) as avg_compliance,
            COUNT(*) FILTER (WHERE a.status = 'Approved') as approved_audits
          FROM audits a
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE a.status IN ('Approved', 'Closed')
          AND a.created_at >= NOW() - INTERVAL '30 days'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}`
+         ${pkgWhere}`,
+        pidParam
       );
 
-      // Previous month compliance for comparison
+      // Previous month compliance for comparison (30-60 days)
       const prevComplianceResult = await db.query(
         `SELECT COALESCE(AVG(a.compliance_percentage), 0) as avg_compliance
          FROM audits a
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE a.status IN ('Approved', 'Closed')
          AND a.created_at >= NOW() - INTERVAL '60 days'
          AND a.created_at < NOW() - INTERVAL '30 days'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}`
+         ${pkgWhere}`,
+        pidParam
       );
 
-      // Open NCs
+      // Open NCs (all-time, for the displayed stat)
       const ncResult = await db.query(
         `SELECT COUNT(*) as open_ncs
          FROM audit_responses ar
          JOIN audits a ON ar.audit_id = a.id
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE ar.status = 'NC'
          AND a.status IN ('Approved', 'In Progress', 'Pending Review')
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}`
+         ${pkgWhere}`,
+        pidParam
       );
 
-      // Previous month NCs
-      const prevNcResult = await db.query(
-        `SELECT COUNT(*) as open_ncs
+      // NC change: compare two equal windows with IDENTICAL predicates so the
+      // trend arrow is meaningful (new NCs this period vs last period).
+      const ncThisPeriodResult = await db.query(
+        `SELECT COUNT(*) as ncs
          FROM audit_responses ar
          JOIN audits a ON ar.audit_id = a.id
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE ar.status = 'NC'
+         AND a.status IN ('Approved', 'In Progress', 'Pending Review')
+         AND a.created_at >= NOW() - INTERVAL '30 days'
+         ${pkgWhere}`,
+        pidParam
+      );
+      const ncPrevPeriodResult = await db.query(
+        `SELECT COUNT(*) as ncs
+         FROM audit_responses ar
+         JOIN audits a ON ar.audit_id = a.id
+         ${pkgJoin}
+         WHERE ar.status = 'NC'
+         AND a.status IN ('Approved', 'In Progress', 'Pending Review')
          AND a.created_at >= NOW() - INTERVAL '60 days'
          AND a.created_at < NOW() - INTERVAL '30 days'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}`
+         ${pkgWhere}`,
+        pidParam
       );
 
       // CAPA status breakdown
@@ -67,9 +83,10 @@ export class DashboardController {
          JOIN audit_responses ar ON c.response_id = ar.id
          JOIN audits a ON ar.audit_id = a.id
          JOIN packages p ON a.package_id = p.id
-         WHERE p.project_id = ${projectId}
+         WHERE p.project_id = $1
          ` : ''}
-         GROUP BY c.status`
+         GROUP BY c.status`,
+        pidParam
       );
 
       // CAPA overdue
@@ -80,20 +97,24 @@ export class DashboardController {
          JOIN audit_responses ar ON c.response_id = ar.id
          JOIN audits a ON ar.audit_id = a.id
          JOIN packages p ON a.package_id = p.id
-         WHERE p.project_id = ${projectId} AND
+         WHERE p.project_id = $1 AND
          ` : 'WHERE'}
          c.status NOT IN ('Closed')
-         AND c.target_date < CURRENT_DATE`
+         AND c.target_date < CURRENT_DATE`,
+        pidParam
       );
 
-      // Days without LTI (placeholder - would come from KPI entries)
+      // Days without LTI: the most recent month's value (not MAX over all history)
       const ltiResult = await db.query(
-        `SELECT COALESCE(MAX(ke.actual_value), 0) as days_without_lti
+        `SELECT ke.actual_value as days_without_lti
          FROM kpi_entries ke
          JOIN kpi_indicators ki ON ke.indicator_id = ki.id
          ${projectId ? 'JOIN packages p ON ke.package_id = p.id' : ''}
          WHERE ki.name LIKE '%Days Without LTI%'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}`
+         ${projectId ? 'AND p.project_id = $1' : ''}
+         ORDER BY ke.period_year DESC, ke.period_month DESC
+         LIMIT 1`,
+        pidParam
       );
 
       // Package compliance with more details
@@ -105,9 +126,10 @@ export class DashboardController {
          FROM packages p
          LEFT JOIN audits a ON p.id = a.package_id AND a.status IN ('Approved', 'Closed')
          WHERE p.status = 'Active'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}
+         ${projectId ? 'AND p.project_id = $1' : ''}
          GROUP BY p.id, p.code, p.name
-         ORDER BY p.code`
+         ORDER BY p.code`,
+        pidParam
       );
 
       // Compliance trend (last 6 months)
@@ -118,12 +140,13 @@ export class DashboardController {
            COALESCE(AVG(a.compliance_percentage), 0) as compliance,
            COUNT(*) as audit_count
          FROM audits a
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE a.status IN ('Approved', 'Closed')
          AND a.created_at >= NOW() - INTERVAL '6 months'
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}
+         ${pkgWhere}
          GROUP BY DATE_TRUNC('month', a.created_at)
-         ORDER BY DATE_TRUNC('month', a.created_at)`
+         ORDER BY DATE_TRUNC('month', a.created_at)`,
+        pidParam
       );
 
       // NC breakdown by category
@@ -134,13 +157,14 @@ export class DashboardController {
          JOIN audit_sections s ON ai.section_id = s.id
          JOIN audit_categories c ON s.category_id = c.id
          JOIN audits a ON ar.audit_id = a.id
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
+         ${pkgJoin}
          WHERE ar.status = 'NC'
          AND a.status IN ('Approved', 'In Progress', 'Pending Review')
-         ${projectId ? `AND p.project_id = ${projectId}` : ''}
+         ${pkgWhere}
          GROUP BY c.id, c.code, c.name
          ORDER BY count DESC
-         LIMIT 10`
+         LIMIT 10`,
+        pidParam
       );
 
       // Recent audits
@@ -149,9 +173,10 @@ export class DashboardController {
          FROM audits a
          JOIN packages p ON a.package_id = p.id
          LEFT JOIN users u ON a.auditor_id = u.id
-         ${projectId ? `WHERE p.project_id = ${projectId}` : ''}
+         ${projectId ? 'WHERE p.project_id = $1' : ''}
          ORDER BY a.created_at DESC
-         LIMIT 5`
+         LIMIT 5`,
+        pidParam
       );
 
       // Recent activity (last 10 activities)
@@ -161,7 +186,7 @@ export class DashboardController {
           FROM audits a
           JOIN packages p ON a.package_id = p.id
           LEFT JOIN users u ON a.auditor_id = u.id
-          ${projectId ? `WHERE p.project_id = ${projectId}` : ''}
+          ${projectId ? 'WHERE p.project_id = $1' : ''}
           ORDER BY a.created_at DESC
           LIMIT 5)
          UNION ALL
@@ -171,20 +196,22 @@ export class DashboardController {
           JOIN audit_responses ar ON c.response_id = ar.id
           JOIN audits a ON ar.audit_id = a.id
           JOIN packages p ON a.package_id = p.id
-          ${projectId ? `WHERE p.project_id = ${projectId}` : ''}
+          ${projectId ? 'WHERE p.project_id = $1' : ''}
           ORDER BY c.created_at DESC
           LIMIT 5)
          ORDER BY timestamp DESC
-         LIMIT 10`
+         LIMIT 10`,
+        pidParam
       );
 
       // Audit status distribution
       const auditStatusResult = await db.query(
         `SELECT a.status, COUNT(*) as count
          FROM audits a
-         ${projectId ? 'JOIN packages p ON a.package_id = p.id' : ''}
-         ${projectId ? `WHERE p.project_id = ${projectId}` : ''}
-         GROUP BY a.status`
+         ${pkgJoin}
+         ${projectId ? 'WHERE p.project_id = $1' : ''}
+         GROUP BY a.status`,
+        pidParam
       );
 
       // Calculate compliance change
@@ -193,10 +220,11 @@ export class DashboardController {
       const complianceChange = prevCompliance > 0 ?
         parseFloat((currentCompliance - prevCompliance).toFixed(1)) : 0;
 
-      // Calculate NC change
+      // Open NC stat (all-time) and a like-for-like period-over-period change
       const currentNCs = parseInt(ncResult.rows[0]?.open_ncs || 0);
-      const prevNCs = parseInt(prevNcResult.rows[0]?.open_ncs || 0);
-      const ncChange = currentNCs - prevNCs;
+      const ncThisPeriod = parseInt(ncThisPeriodResult.rows[0]?.ncs || 0);
+      const ncPrevPeriod = parseInt(ncPrevPeriodResult.rows[0]?.ncs || 0);
+      const ncChange = ncThisPeriod - ncPrevPeriod;
 
       // Build CAPA status object
       const capaStatus: Record<string, number> = { Open: 0, 'In Progress': 0, Closed: 0 };
@@ -282,21 +310,45 @@ export class DashboardController {
     try {
       const { id } = req.params;
 
-      // Similar to overview but filtered by package
+      // Compliance + audit/CAPA rollups for a single package
       const complianceResult = await db.query(
         `SELECT
-           COALESCE(AVG(compliance_percentage), 0) as avg_compliance
+           COALESCE(AVG(compliance_percentage), 0) as avg_compliance,
+           COUNT(*) as total_audits,
+           COUNT(*) FILTER (WHERE status = 'Approved') as approved_audits,
+           COALESCE(SUM(non_compliant_count), 0) as total_ncs
          FROM audits
          WHERE package_id = $1
          AND status IN ('Approved', 'Closed')`,
         [id]
       );
 
+      const capaResult = await db.query(
+        `SELECT
+           COUNT(*) as total_capas,
+           COUNT(*) FILTER (WHERE c.status != 'Closed') as open_capas,
+           COUNT(*) FILTER (WHERE c.status != 'Closed' AND c.target_date < CURRENT_DATE) as overdue_capas
+         FROM capa c
+         JOIN audit_responses ar ON c.response_id = ar.id
+         JOIN audits a ON ar.audit_id = a.id
+         WHERE a.package_id = $1`,
+        [id]
+      );
+
+      const stats = complianceResult.rows[0] || {};
+      const capaStats = capaResult.rows[0] || {};
+
       res.json({
         success: true,
         data: {
           stats: {
-            overallCompliance: parseFloat(complianceResult.rows[0]?.avg_compliance || 0).toFixed(1),
+            overallCompliance: parseFloat(stats.avg_compliance || 0).toFixed(1),
+            totalAudits: parseInt(stats.total_audits || 0),
+            approvedAudits: parseInt(stats.approved_audits || 0),
+            totalNCs: parseInt(stats.total_ncs || 0),
+            totalCAPAs: parseInt(capaStats.total_capas || 0),
+            openCAPAs: parseInt(capaStats.open_capas || 0),
+            overdueCAPAs: parseInt(capaStats.overdue_capas || 0),
           },
         },
       });
@@ -308,40 +360,59 @@ export class DashboardController {
   // Project comparison dashboard
   getProjectComparison = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      // Get all projects with their key metrics
+      // Aggregate audits and CAPAs per project in SEPARATE subqueries so the
+      // LEFT JOIN chain does not fan out (which would inflate AVG/COUNT).
       const projectMetrics = await db.query(`
         SELECT
           pr.id,
           pr.code,
           pr.name,
-          COUNT(DISTINCT a.id) as total_audits,
-          COALESCE(AVG(a.compliance_percentage), 0) as avg_compliance,
-          COUNT(DISTINCT CASE WHEN a.status = 'Approved' THEN a.id END) as approved_audits,
-          COUNT(DISTINCT c.id) as total_capas,
-          COUNT(DISTINCT CASE WHEN c.status = 'Open' OR c.status = 'In Progress' THEN c.id END) as open_capas,
-          COUNT(DISTINCT CASE WHEN c.target_date < CURRENT_DATE AND c.status != 'Closed' THEN c.id END) as overdue_capas,
-          COUNT(DISTINCT p.id) as package_count
+          COALESCE(am.total_audits, 0) as total_audits,
+          COALESCE(am.avg_compliance, 0) as avg_compliance,
+          COALESCE(am.approved_audits, 0) as approved_audits,
+          COALESCE(cm.total_capas, 0) as total_capas,
+          COALESCE(cm.open_capas, 0) as open_capas,
+          COALESCE(cm.overdue_capas, 0) as overdue_capas,
+          COALESCE(pk.package_count, 0) as package_count
         FROM projects pr
-        LEFT JOIN packages p ON p.project_id = pr.id
-        LEFT JOIN audits a ON a.package_id = p.id AND a.status IN ('Approved', 'Closed')
-        LEFT JOIN audit_responses ar ON ar.audit_id = a.id
-        LEFT JOIN capa c ON c.response_id = ar.id
+        LEFT JOIN (
+          SELECT p.project_id,
+                 COUNT(a.id) as total_audits,
+                 AVG(a.compliance_percentage) as avg_compliance,
+                 COUNT(*) FILTER (WHERE a.status = 'Approved') as approved_audits
+          FROM packages p
+          JOIN audits a ON a.package_id = p.id AND a.status IN ('Approved', 'Closed')
+          GROUP BY p.project_id
+        ) am ON am.project_id = pr.id
+        LEFT JOIN (
+          SELECT p.project_id,
+                 COUNT(c.id) as total_capas,
+                 COUNT(*) FILTER (WHERE c.status IN ('Open', 'In Progress')) as open_capas,
+                 COUNT(*) FILTER (WHERE c.target_date < CURRENT_DATE AND c.status != 'Closed') as overdue_capas
+          FROM packages p
+          JOIN audits a ON a.package_id = p.id
+          JOIN audit_responses ar ON ar.audit_id = a.id
+          JOIN capa c ON c.response_id = ar.id
+          GROUP BY p.project_id
+        ) cm ON cm.project_id = pr.id
+        LEFT JOIN (
+          SELECT project_id, COUNT(*) as package_count
+          FROM packages GROUP BY project_id
+        ) pk ON pk.project_id = pr.id
         WHERE pr.status = 'Active'
-        GROUP BY pr.id, pr.code, pr.name
         ORDER BY pr.name
       `);
 
       // Get monthly compliance trend for all projects (last 6 months)
       const complianceTrend = await db.query(`
         SELECT
-          pr.id as project_id,
           pr.code as project_code,
           TO_CHAR(DATE_TRUNC('month', a.created_at), 'Mon') as month,
           DATE_TRUNC('month', a.created_at) as month_date,
           COALESCE(AVG(a.compliance_percentage), 0) as compliance
         FROM projects pr
-        LEFT JOIN packages p ON p.project_id = pr.id
-        LEFT JOIN audits a ON a.package_id = p.id AND a.status IN ('Approved', 'Closed')
+        JOIN packages p ON p.project_id = pr.id
+        JOIN audits a ON a.package_id = p.id AND a.status IN ('Approved', 'Closed')
         WHERE a.created_at >= NOW() - INTERVAL '6 months'
         GROUP BY pr.id, pr.code, DATE_TRUNC('month', a.created_at)
         ORDER BY pr.id, month_date
@@ -411,46 +482,41 @@ export class DashboardController {
       const currentMonth = periodMonth || new Date().getMonth() + 1;
       const currentYear = periodYear || new Date().getFullYear();
 
-      let leadingQuery = `
-        SELECT ki.name, ki.unit, ki.benchmark_value,
-               COALESCE(ke.target_value, ki.benchmark_value) as target,
-               ke.actual_value as actual
-        FROM kpi_indicators ki
-        LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
-             AND ke.period_month = $1 AND ke.period_year = $2
-        ${projectId ? 'LEFT JOIN packages p ON ke.package_id = p.id' : ''}
-        WHERE ki.type = 'Leading'
-      `;
-      const params: any[] = [currentMonth, currentYear];
-      let paramIndex = 3;
+      // Build the entry-join predicates (project/package filters belong in the
+      // JOIN ON clause so indicators with no matching entry still appear as NULL)
+      // and AGGREGATE per indicator to avoid duplicate rows across packages.
+      const buildQuery = (indicatorType: 'Leading' | 'Lagging') => {
+        const params: any[] = [currentMonth, currentYear];
+        let onClause = `ke.period_month = $1 AND ke.period_year = $2`;
+        let paramIndex = 3;
 
-      if (projectId) {
-        leadingQuery += ` AND (p.project_id = $${paramIndex++} OR ke.package_id IS NULL)`;
-        params.push(projectId);
-      }
+        if (projectId) {
+          onClause += ` AND ke.package_id IN (SELECT id FROM packages WHERE project_id = $${paramIndex++})`;
+          params.push(projectId);
+        }
+        if (packageId) {
+          onClause += ` AND ke.package_id = $${paramIndex++}`;
+          params.push(packageId);
+        }
 
-      if (packageId) {
-        leadingQuery += ` AND (ke.package_id = $${paramIndex++} OR ke.package_id IS NULL)`;
-        params.push(packageId);
-      }
+        const query = `
+          SELECT ki.name, ki.unit, ki.benchmark_value,
+                 COALESCE(AVG(ke.target_value), ki.benchmark_value) as target,
+                 AVG(ke.actual_value) as actual
+          FROM kpi_indicators ki
+          LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id AND ${onClause}
+          WHERE ki.type = '${indicatorType}'
+          GROUP BY ki.id, ki.name, ki.unit, ki.benchmark_value, ki.display_order
+          ORDER BY ki.display_order
+        `;
+        return { query, params };
+      };
 
-      leadingQuery += ' ORDER BY ki.display_order';
+      const leading = buildQuery('Leading');
+      const lagging = buildQuery('Lagging');
 
-      const leadingResult = await db.query(leadingQuery, params);
-
-      // Similar for lagging indicators
-      let laggingQuery = `
-        SELECT ki.name, ki.unit, ki.benchmark_value,
-                ke.actual_value as value
-         FROM kpi_indicators ki
-         LEFT JOIN kpi_entries ke ON ki.id = ke.indicator_id
-              AND ke.period_month = $1 AND ke.period_year = $2
-         ${projectId ? 'LEFT JOIN packages p ON ke.package_id = p.id' : ''}
-         WHERE ki.type = 'Lagging'
-         ${projectId ? `AND (p.project_id = ${projectId} OR ke.package_id IS NULL)` : ''}
-         ORDER BY ki.display_order
-      `;
-      const laggingResult = await db.query(laggingQuery, [currentMonth, currentYear]);
+      const leadingResult = await db.query(leading.query, leading.params);
+      const laggingResult = await db.query(lagging.query, lagging.params);
 
       res.json({
         success: true,
@@ -463,7 +529,7 @@ export class DashboardController {
           })),
           laggingIndicators: laggingResult.rows.map((row) => ({
             name: row.name,
-            value: row.value,
+            value: row.actual,
             benchmark: row.benchmark_value,
             unit: row.unit,
           })),
