@@ -1157,6 +1157,87 @@ export class AuditController {
         })
       );
 
+      // Full checklist results (ALL items, every status) so the Word export is a
+      // complete audit report — not just the non-conformances.
+      const allResponses = await db.query(
+        `SELECT ar.status, ar.observation, ai.sr_no, ai.audit_point,
+                c.name as category_name
+         FROM audit_responses ar
+         JOIN audit_items ai ON ar.audit_item_id = ai.id
+         JOIN audit_sections s ON ai.section_id = s.id
+         JOIN audit_categories c ON s.category_id = c.id
+         WHERE ar.audit_id = $1
+         ORDER BY c.display_order, s.display_order, ai.sr_no`,
+        [id]
+      );
+
+      const statusMeta: Record<string, { label: string; color: string }> = {
+        C: { label: 'Compliant', color: '008000' },
+        NC: { label: 'Non-Compliant', color: 'C00000' },
+        NA: { label: 'N/A', color: '666666' },
+        NV: { label: 'Not Verified', color: 'ED7D31' },
+      };
+
+      docChildren.push(
+        new Paragraph({
+          text: 'Audit Checklist Results',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 200, after: 200 },
+        })
+      );
+
+      if (allResponses.rows.length > 0) {
+        const mkHeaderCell = (text: string, size: number) =>
+          new TableCell({
+            shading: { fill: '1F4E79' },
+            verticalAlign: VerticalAlign.CENTER,
+            width: { size, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 20 })] })],
+          });
+
+        const checklistHeader = new TableRow({
+          tableHeader: true,
+          children: [
+            mkHeaderCell('S.No', 6),
+            mkHeaderCell('Category', 22),
+            mkHeaderCell('Audit Point', 42),
+            mkHeaderCell('Status', 12),
+            mkHeaderCell('Observation', 18),
+          ],
+        });
+
+        const checklistRows = allResponses.rows.map((r: any, idx: number) => {
+          const meta = statusMeta[r.status] || { label: r.status || '-', color: '000000' };
+          const shading = idx % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
+          const cell = (children: Paragraph[]) =>
+            new TableCell({ shading: { fill: shading }, verticalAlign: VerticalAlign.TOP, children });
+          return new TableRow({
+            children: [
+              cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })]),
+              cell([new Paragraph({ children: [new TextRun({ text: r.category_name || '', size: 18 })] })]),
+              cell([new Paragraph({ children: [new TextRun({ text: r.audit_point || '', size: 18 })] })]),
+              cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: meta.label, bold: true, color: meta.color, size: 18 })] })]),
+              cell([new Paragraph({ children: [new TextRun({ text: r.observation || '', size: 18 })] })]),
+            ],
+          });
+        });
+
+        docChildren.push(
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [checklistHeader, ...checklistRows],
+          })
+        );
+      } else {
+        docChildren.push(
+          new Paragraph({
+            text: 'No responses recorded for this audit yet.',
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 100, after: 100 },
+          })
+        );
+      }
+
       // NC Observations heading
       docChildren.push(
         new Paragraph({
