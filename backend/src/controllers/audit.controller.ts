@@ -1157,16 +1157,25 @@ export class AuditController {
         })
       );
 
-      // Full checklist results (ALL items, every status) so the Word export is a
-      // complete audit report — not just the non-conformances.
+      // Full checklist results (ALL items, every status, WITH their evidence
+      // photos) so the Word export is a complete audit report — compliant items
+      // included, not just the non-conformances.
       const allResponses = await db.query(
         `SELECT ar.status, ar.observation, ai.sr_no, ai.audit_point,
-                c.name as category_name
+                c.name as category_name,
+                COALESCE(
+                  json_agg(
+                    json_build_object('filePath', ae.file_path, 'fileType', ae.file_type)
+                  ) FILTER (WHERE ae.id IS NOT NULL), '[]'
+                ) as evidence
          FROM audit_responses ar
          JOIN audit_items ai ON ar.audit_item_id = ai.id
          JOIN audit_sections s ON ai.section_id = s.id
          JOIN audit_categories c ON s.category_id = c.id
+         LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
          WHERE ar.audit_id = $1
+         GROUP BY ar.id, ar.status, ar.observation, ai.sr_no, ai.audit_point,
+                  c.name, c.display_order, s.display_order
          ORDER BY c.display_order, s.display_order, ai.sr_no`,
         [id]
       );
@@ -1176,6 +1185,52 @@ export class AuditController {
         NC: { label: 'Non-Compliant', color: 'C00000' },
         NA: { label: 'N/A', color: '666666' },
         NV: { label: 'Not Verified', color: 'ED7D31' },
+      };
+
+      // Load an evidence image file and return a scaled docx Paragraph (or null)
+      const buildEvidenceImage = (filePath?: string, fileType?: string) => {
+        if (!filePath || !fileType || !fileType.startsWith('image/')) return null;
+        try {
+          const fullPath = path.resolve(filePath);
+          if (!fs.existsSync(fullPath)) return null;
+          const imageData = fs.readFileSync(fullPath);
+          let origWidth = 400, origHeight = 300;
+          if (imageData[0] === 0x89 && imageData[1] === 0x50) {
+            origWidth = imageData.readUInt32BE(16);
+            origHeight = imageData.readUInt32BE(20);
+          } else if (imageData[0] === 0xFF && imageData[1] === 0xD8) {
+            let offset = 2;
+            while (offset < imageData.length - 8) {
+              if (imageData[offset] === 0xFF) {
+                const marker = imageData[offset + 1];
+                if (marker >= 0xC0 && marker <= 0xC3) {
+                  origHeight = imageData.readUInt16BE(offset + 5);
+                  origWidth = imageData.readUInt16BE(offset + 7);
+                  break;
+                }
+                offset += 2 + imageData.readUInt16BE(offset + 2);
+              } else {
+                offset++;
+              }
+            }
+          }
+          const maxW = 130, maxH = 110;
+          const scale = Math.min(maxW / origWidth, maxH / origHeight, 1);
+          return new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 60 },
+            children: [
+              new ImageRun({
+                data: imageData,
+                transformation: { width: Math.round(origWidth * scale), height: Math.round(origHeight * scale) },
+                type: getImageType(fileType, filePath),
+              }),
+            ],
+          });
+        } catch (err) {
+          logger.warn(`Could not load checklist evidence image: ${filePath}`);
+          return null;
+        }
       };
 
       docChildren.push(
@@ -1198,11 +1253,12 @@ export class AuditController {
         const checklistHeader = new TableRow({
           tableHeader: true,
           children: [
-            mkHeaderCell('S.No', 6),
-            mkHeaderCell('Category', 22),
-            mkHeaderCell('Audit Point', 42),
-            mkHeaderCell('Status', 12),
-            mkHeaderCell('Observation', 18),
+            mkHeaderCell('S.No', 5),
+            mkHeaderCell('Category', 16),
+            mkHeaderCell('Audit Point', 29),
+            mkHeaderCell('Status', 10),
+            mkHeaderCell('Observation', 15),
+            mkHeaderCell('Evidence', 25),
           ],
         });
 
@@ -1211,6 +1267,17 @@ export class AuditController {
           const shading = idx % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
           const cell = (children: Paragraph[]) =>
             new TableCell({ shading: { fill: shading }, verticalAlign: VerticalAlign.TOP, children });
+
+          // Embed every evidence photo for this item (compliant or not)
+          const evParas: Paragraph[] = [];
+          for (const ev of (r.evidence || [])) {
+            const p = buildEvidenceImage(ev.filePath, ev.fileType);
+            if (p) evParas.push(p);
+          }
+          if (evParas.length === 0) {
+            evParas.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '-', color: '999999', size: 16 })] }));
+          }
+
           return new TableRow({
             children: [
               cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })]),
@@ -1218,6 +1285,7 @@ export class AuditController {
               cell([new Paragraph({ children: [new TextRun({ text: r.audit_point || '', size: 18 })] })]),
               cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: meta.label, bold: true, color: meta.color, size: 18 })] })]),
               cell([new Paragraph({ children: [new TextRun({ text: r.observation || '', size: 18 })] })]),
+              cell(evParas),
             ],
           });
         });
