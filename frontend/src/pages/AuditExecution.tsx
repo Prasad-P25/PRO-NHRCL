@@ -334,6 +334,35 @@ export function AuditExecutionPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  // Refs so the window-level paste listener always uses the latest handler/item.
+  // (These hooks MUST stay above the early `if (isLoading) return` below.)
+  const handleFileUploadRef = useRef<((file: File, itemId: number) => void | Promise<void>) | null>(null);
+  const selectedItemRef = useRef<AuditItem | null>(selectedItem);
+  selectedItemRef.current = selectedItem;
+
+  // Paste a screenshot (Ctrl/Cmd+V) anywhere while the item detail dialog is open
+  useEffect(() => {
+    if (!isDetailDialogOpen || !selectedItem) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          const current = selectedItemRef.current;
+          if (file && current) {
+            const named = new File([file], file.name || `screenshot-${Date.now()}.png`, { type: file.type });
+            handleFileUploadRef.current?.(named, current.id);
+          }
+          e.preventDefault();
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [isDetailDialogOpen, selectedItem]);
+
   const isLoading = auditLoading || responsesLoading || categoriesLoading;
 
   if (isLoading) {
@@ -636,36 +665,9 @@ export function AuditExecutionPage() {
     }
   };
 
-  // Keep the latest upload handler + selected item in refs so the window-level
-  // paste listener never calls a stale version.
-  const handleFileUploadRef = useRef(handleFileUpload);
+  // Keep the paste listener's ref pointing at the latest upload handler.
+  // (Plain assignment, not a hook — safe to run after the early return above.)
   handleFileUploadRef.current = handleFileUpload;
-  const selectedItemRef = useRef(selectedItem);
-  selectedItemRef.current = selectedItem;
-
-  // Paste a screenshot (Ctrl/Cmd+V) anywhere while the item detail dialog is open
-  useEffect(() => {
-    if (!isDetailDialogOpen || !selectedItem) return;
-    const onPaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          const current = selectedItemRef.current;
-          if (file && current) {
-            // Give pasted screenshots a sensible filename
-            const named = new File([file], file.name || `screenshot-${Date.now()}.png`, { type: file.type });
-            handleFileUploadRef.current(named, current.id);
-          }
-          e.preventDefault();
-          break;
-        }
-      }
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, [isDetailDialogOpen, selectedItem]);
 
   // Drag-and-drop image/file onto the evidence dropzone
   const handleEvidenceDrop = (e: DragEvent<HTMLDivElement>) => {
