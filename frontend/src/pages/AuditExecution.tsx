@@ -1484,40 +1484,55 @@ export function AuditExecutionPage() {
                   </div>
                 )}
 
-                {/* Display uploaded evidence */}
+                {/* Display uploaded evidence as thumbnails */}
                 {getResponse(selectedItem.id).evidence.length > 0 && (
                   <div className="mt-3 space-y-2">
                     <p className="text-xs text-muted-foreground">
                       Uploaded files ({getResponse(selectedItem.id).evidence.length}):
                     </p>
-                    <div className="space-y-1">
-                      {getResponse(selectedItem.id).evidence.map((ev) => (
-                        <div
-                          key={ev.id}
-                          className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                        >
-                          <button
-                            type="button"
-                            className="flex items-center gap-2 truncate hover:text-primary cursor-pointer"
-                            onClick={() => setPreviewEvidence(ev)}
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {getResponse(selectedItem.id).evidence.map((ev) => {
+                        const isImage = ev.fileType?.startsWith('image/');
+                        const url = `${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${ev.filePath.replace(/\\/g, '/')}`;
+                        return (
+                          <div
+                            key={ev.id}
+                            className="group relative aspect-square overflow-hidden rounded-md border bg-muted"
                           >
-                            {ev.fileType.startsWith('image/') ? (
-                              <FileImage className="h-4 w-4 text-blue-500" />
-                            ) : (
-                              <FileText className="h-4 w-4 text-orange-500" />
-                            )}
-                            <span className="truncate hover:underline">{ev.fileName}</span>
-                          </button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteEvidence(selectedItem.id, ev.id)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
+                            <button
+                              type="button"
+                              className="h-full w-full"
+                              onClick={() => setPreviewEvidence(ev)}
+                              title={ev.fileName}
+                            >
+                              {isImage ? (
+                                <img
+                                  src={url}
+                                  alt={ev.fileName}
+                                  loading="lazy"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-1 text-center">
+                                  <FileText className="h-6 w-6 text-orange-500" />
+                                  <span className="w-full truncate text-[10px] text-muted-foreground">
+                                    {ev.fileName}
+                                  </span>
+                                </div>
+                              )}
+                            </button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="absolute right-1 top-1 h-6 w-6 p-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+                              onClick={() => handleDeleteEvidence(selectedItem.id, ev.id)}
+                              title="Delete evidence"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
