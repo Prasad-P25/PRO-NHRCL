@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type DragEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -106,6 +106,7 @@ export function AuditExecutionPage() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingNC, setIsExportingNC] = useState(false);
 
@@ -632,6 +633,48 @@ export function AuditExecutionPage() {
       } finally {
         setIsUploading(false);
       }
+    }
+  };
+
+  // Keep the latest upload handler + selected item in refs so the window-level
+  // paste listener never calls a stale version.
+  const handleFileUploadRef = useRef(handleFileUpload);
+  handleFileUploadRef.current = handleFileUpload;
+  const selectedItemRef = useRef(selectedItem);
+  selectedItemRef.current = selectedItem;
+
+  // Paste a screenshot (Ctrl/Cmd+V) anywhere while the item detail dialog is open
+  useEffect(() => {
+    if (!isDetailDialogOpen || !selectedItem) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          const current = selectedItemRef.current;
+          if (file && current) {
+            // Give pasted screenshots a sensible filename
+            const named = new File([file], file.name || `screenshot-${Date.now()}.png`, { type: file.type });
+            handleFileUploadRef.current(named, current.id);
+          }
+          e.preventDefault();
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [isDetailDialogOpen, selectedItem]);
+
+  // Drag-and-drop image/file onto the evidence dropzone
+  const handleEvidenceDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!selectedItem) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleFileUpload(file, selectedItem.id);
     }
   };
 
@@ -1379,6 +1422,39 @@ export function AuditExecutionPage() {
                     )}
                     Upload Doc
                   </Button>
+                </div>
+
+                {/* Drag & drop / paste-screenshot zone */}
+                <div
+                  onDrop={handleEvidenceDrop}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onPaste={(e) => {
+                    const f = Array.from(e.clipboardData.items)
+                      .find((i) => i.type.startsWith('image/'))
+                      ?.getAsFile();
+                    if (f && selectedItem) {
+                      handleFileUpload(f, selectedItem.id);
+                      e.preventDefault();
+                    }
+                  }}
+                  tabIndex={0}
+                  className={`mt-3 flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-4 text-center text-sm outline-none transition-colors ${
+                    isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-muted-foreground/50'
+                  } ${isUploading ? 'opacity-60' : ''}`}
+                >
+                  {isUploading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+                    </span>
+                  ) : (
+                    <>
+                      <FileImage className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-muted-foreground">
+                        Drag &amp; drop an image here, or paste a screenshot (Ctrl+V)
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 {/* Camera Preview */}
