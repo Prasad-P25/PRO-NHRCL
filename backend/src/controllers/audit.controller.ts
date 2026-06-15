@@ -30,6 +30,7 @@ import {
 } from 'docx';
 import * as fs from 'fs';
 import * as path from 'path';
+import sharp from 'sharp';
 
 // Logo paths (place logos in backend/src/assets/logos/)
 const ASSETS_PATH = path.join(__dirname, '..', 'assets', 'logos');
@@ -1187,50 +1188,54 @@ export class AuditController {
         NV: { label: 'Not Verified', color: 'ED7D31' },
       };
 
-      // Load an evidence image file and return a scaled docx Paragraph (or null)
+      // Pre-compress every evidence image ONCE (resize to max 1000px + JPEG q70)
+      // so the report stays small even with dozens of full-resolution photos.
+      // .rotate() applies EXIF orientation so phone photos aren't sideways.
+      const compressedImages = new Map<string, { data: Buffer; width: number; height: number }>();
+      const evidencePaths = new Set<string>();
+      for (const r of allResponses.rows) {
+        for (const ev of (r.evidence || [])) {
+          if (ev.filePath && ev.fileType && ev.fileType.startsWith('image/')) {
+            evidencePaths.add(ev.filePath);
+          }
+        }
+      }
+      await Promise.all(
+        Array.from(evidencePaths).map(async (fp) => {
+          try {
+            const fullPath = path.resolve(fp);
+            if (!fs.existsSync(fullPath)) return;
+            const data = await sharp(fullPath)
+              .rotate()
+              .resize({ width: 1000, withoutEnlargement: true })
+              .jpeg({ quality: 70 })
+              .toBuffer();
+            const meta = await sharp(data).metadata();
+            compressedImages.set(fp, { data, width: meta.width || 1000, height: meta.height || 750 });
+          } catch (err) {
+            logger.warn(`Could not compress evidence image: ${fp}`);
+          }
+        })
+      );
+
+      // Return a scaled docx Paragraph for a (pre-compressed) evidence image
       const buildEvidenceImage = (filePath?: string, fileType?: string) => {
         if (!filePath || !fileType || !fileType.startsWith('image/')) return null;
-        try {
-          const fullPath = path.resolve(filePath);
-          if (!fs.existsSync(fullPath)) return null;
-          const imageData = fs.readFileSync(fullPath);
-          let origWidth = 400, origHeight = 300;
-          if (imageData[0] === 0x89 && imageData[1] === 0x50) {
-            origWidth = imageData.readUInt32BE(16);
-            origHeight = imageData.readUInt32BE(20);
-          } else if (imageData[0] === 0xFF && imageData[1] === 0xD8) {
-            let offset = 2;
-            while (offset < imageData.length - 8) {
-              if (imageData[offset] === 0xFF) {
-                const marker = imageData[offset + 1];
-                if (marker >= 0xC0 && marker <= 0xC3) {
-                  origHeight = imageData.readUInt16BE(offset + 5);
-                  origWidth = imageData.readUInt16BE(offset + 7);
-                  break;
-                }
-                offset += 2 + imageData.readUInt16BE(offset + 2);
-              } else {
-                offset++;
-              }
-            }
-          }
-          const maxW = 130, maxH = 110;
-          const scale = Math.min(maxW / origWidth, maxH / origHeight, 1);
-          return new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 60 },
-            children: [
-              new ImageRun({
-                data: imageData,
-                transformation: { width: Math.round(origWidth * scale), height: Math.round(origHeight * scale) },
-                type: getImageType(fileType, filePath),
-              }),
-            ],
-          });
-        } catch (err) {
-          logger.warn(`Could not load checklist evidence image: ${filePath}`);
-          return null;
-        }
+        const img = compressedImages.get(filePath);
+        if (!img) return null;
+        const maxW = 130, maxH = 110;
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+        return new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 60 },
+          children: [
+            new ImageRun({
+              data: img.data,
+              transformation: { width: Math.round(img.width * scale), height: Math.round(img.height * scale) },
+              type: 'jpg',
+            }),
+          ],
+        });
       };
 
       docChildren.push(
@@ -1360,57 +1365,26 @@ export class AuditController {
         const evidence = response.evidence || [];
         const photoChildren: any[] = [];
 
-        // Load and embed photos with proper aspect ratio
+        // Embed the pre-compressed photos with proper aspect ratio
         for (const photo of evidence) {
           if (photo.filePath && photo.fileType && photo.fileType.startsWith('image/')) {
-            try {
-              const fullPath = path.resolve(photo.filePath);
-              if (fs.existsSync(fullPath)) {
-                const imageData = fs.readFileSync(fullPath);
-
-                // Get image dimensions from header
-                let origWidth = 400, origHeight = 300;
-                if (imageData[0] === 0x89 && imageData[1] === 0x50) { // PNG
-                  origWidth = imageData.readUInt32BE(16);
-                  origHeight = imageData.readUInt32BE(20);
-                } else if (imageData[0] === 0xFF && imageData[1] === 0xD8) { // JPEG
-                  let offset = 2;
-                  while (offset < imageData.length - 8) {
-                    if (imageData[offset] === 0xFF && imageData[offset + 1] >= 0xC0 && imageData[offset + 1] <= 0xC3) {
-                      origHeight = imageData.readUInt16BE(offset + 5);
-                      origWidth = imageData.readUInt16BE(offset + 7);
-                      break;
-                    }
-                    if (imageData[offset] === 0xFF) {
-                      offset += 2 + imageData.readUInt16BE(offset + 2);
-                    } else {
-                      offset++;
-                    }
-                  }
-                }
-
-                // Scale to fit max 150x120 while preserving aspect ratio
-                const maxW = 150, maxH = 120;
-                const scale = Math.min(maxW / origWidth, maxH / origHeight, 1);
-                const width = Math.round(origWidth * scale);
-                const height = Math.round(origHeight * scale);
-
-                photoChildren.push(
-                  new Paragraph({
-                    children: [
-                      new ImageRun({
-                        data: imageData,
-                        transformation: { width, height },
-                        type: getImageType(photo.fileType, photo.filePath),
-                      }),
-                    ],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 100 },
-                  })
-                );
-              }
-            } catch (err) {
-              logger.error(`Failed to load image: ${photo.filePath}`, err);
+            const img = compressedImages.get(photo.filePath);
+            if (img) {
+              const maxW = 150, maxH = 120;
+              const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+              photoChildren.push(
+                new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: img.data,
+                      transformation: { width: Math.round(img.width * scale), height: Math.round(img.height * scale) },
+                      type: 'jpg',
+                    }),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 100 },
+                })
+              );
             }
           }
         }
