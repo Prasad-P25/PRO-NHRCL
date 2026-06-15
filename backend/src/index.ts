@@ -63,8 +63,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve uploaded evidence files statically. These are loaded by the frontend on
+// a different subdomain, so override Helmet's default same-origin resource policy
+// (filenames are unguessable random hex, so they're not publicly enumerable).
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  },
+  express.static(path.join(__dirname, '../uploads'))
+);
 
 // Rate limiting - apply to all API routes
 app.use('/api/', apiLimiter);

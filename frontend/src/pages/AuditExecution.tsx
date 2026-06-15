@@ -669,6 +669,15 @@ export function AuditExecutionPage() {
   // (Plain assignment, not a hook — safe to run after the early return above.)
   handleFileUploadRef.current = handleFileUpload;
 
+  // Build a URL for an evidence file. The ?e= param cache-busts stale Cloudflare
+  // edge responses that carried the old same-origin CORP header (which blocked
+  // the cross-subdomain image from loading in the browser).
+  const evidenceUrl = (filePath?: string, id?: number | string) => {
+    if (!filePath) return '';
+    const base = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || '';
+    return `${base}/${filePath.replace(/\\/g, '/')}${id != null ? `?e=${id}` : ''}`;
+  };
+
   // Drag-and-drop image/file onto the evidence dropzone
   const handleEvidenceDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1495,7 +1504,7 @@ export function AuditExecutionPage() {
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       {getResponse(selectedItem.id).evidence.map((ev) => {
                         const isImage = ev.fileType?.startsWith('image/');
-                        const url = `${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${ev.filePath.replace(/\\/g, '/')}`;
+                        const url = evidenceUrl(ev.filePath, ev.id);
                         return (
                           <div
                             key={ev.id}
@@ -1675,7 +1684,7 @@ export function AuditExecutionPage() {
           <div className="flex items-center justify-center overflow-auto max-h-[70vh]">
             {previewEvidence?.fileType.startsWith('image/') ? (
               <img
-                src={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence.filePath.replace(/\\/g, '/')}`}
+                src={evidenceUrl(previewEvidence.filePath, previewEvidence.id)}
                 alt={previewEvidence.fileName}
                 className="max-w-full max-h-[65vh] object-contain rounded-lg"
                 onError={(e) => {
@@ -1689,7 +1698,7 @@ export function AuditExecutionPage() {
                 <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">Preview not available for this file type</p>
                 <a
-                  href={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence?.filePath.replace(/\\/g, '/')}`}
+                  href={evidenceUrl(previewEvidence?.filePath, previewEvidence?.id)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline mt-2 inline-block"
@@ -1705,7 +1714,7 @@ export function AuditExecutionPage() {
               Close
             </Button>
             <a
-              href={`${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${previewEvidence?.filePath.replace(/\\/g, '/')}`}
+              href={evidenceUrl(previewEvidence?.filePath, previewEvidence?.id)}
               target="_blank"
               rel="noopener noreferrer"
             >
