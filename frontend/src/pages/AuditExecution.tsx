@@ -1468,29 +1468,59 @@ export function AuditExecutionPage() {
                   )}
                 </div>
 
-                {/* Camera Preview */}
+                {/* Camera Preview — full-screen overlay so the capture button
+                    is always visible on mobile (an inline preview pushed the
+                    button below the fold on small screens) */}
                 {isCameraOpen && (
-                  <div className="mt-3 rounded-lg border bg-black p-2">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full rounded"
-                    />
-                    <canvas ref={canvasRef} className="hidden" />
-                    <div className="flex justify-center gap-2 mt-2">
-                      <Button onClick={capturePhoto} disabled={isUploading}>
-                        {isUploading ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Camera className="mr-2 h-4 w-4" />
-                        )}
-                        Take Photo
-                      </Button>
-                      <Button variant="outline" onClick={stopCamera}>
+                  <div className="fixed inset-0 z-[100] flex flex-col bg-black">
+                    {/* Live preview fills all available space */}
+                    <div className="relative flex-1 min-h-0 flex items-center justify-center overflow-hidden">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="max-h-full max-w-full object-contain"
+                      />
+                      <canvas ref={canvasRef} className="hidden" />
+                      {/* Close (X) in the top corner as a fallback */}
+                      <button
+                        type="button"
+                        onClick={stopCamera}
+                        aria-label="Close camera"
+                        className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white"
+                      >
+                        <X className="h-6 w-6" />
+                      </button>
+                    </div>
+                    {/* Controls pinned to the bottom — always on screen, with
+                        safe-area padding for phones with a home indicator */}
+                    <div
+                      className="flex items-center justify-center gap-4 bg-black px-4 py-5"
+                      style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
+                    >
+                      <Button
+                        variant="outline"
+                        onClick={stopCamera}
+                        className="border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                      >
                         Cancel
                       </Button>
+                      <button
+                        type="button"
+                        onClick={capturePhoto}
+                        disabled={isUploading}
+                        aria-label="Take photo"
+                        className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-white/20 disabled:opacity-60"
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-8 w-8 animate-spin text-white" />
+                        ) : (
+                          <span className="h-12 w-12 rounded-full bg-white" />
+                        )}
+                      </button>
+                      {/* Spacer to keep the shutter button centered */}
+                      <div className="w-[78px]" aria-hidden="true" />
                     </div>
                   </div>
                 )}
