@@ -1163,7 +1163,7 @@ export class AuditController {
       // included, not just the non-conformances.
       const allResponses = await db.query(
         `SELECT ar.status, ar.observation, ai.sr_no, ai.audit_point,
-                c.name as category_name,
+                c.code as category_code, c.name as category_name,
                 COALESCE(
                   json_agg(
                     json_build_object('filePath', ae.file_path, 'fileType', ae.file_type)
@@ -1176,7 +1176,7 @@ export class AuditController {
          LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
          WHERE ar.audit_id = $1
          GROUP BY ar.id, ar.status, ar.observation, ai.sr_no, ai.audit_point,
-                  c.name, c.display_order, s.display_order
+                  c.code, c.name, c.display_order, s.display_order
          ORDER BY c.display_order, s.display_order, ai.sr_no`,
         [id]
       );
@@ -1238,69 +1238,165 @@ export class AuditController {
         });
       };
 
-      docChildren.push(
-        new Paragraph({
-          text: 'Audit Checklist Results',
-          heading: HeadingLevel.HEADING_2,
-          spacing: { before: 200, after: 200 },
-        })
-      );
+      // Group responses by category (preserving the audit's display order)
+      const categoryGroups: { code: string; name: string; rows: any[] }[] = [];
+      const catIndex = new Map<string, number>();
+      for (const r of allResponses.rows) {
+        const key = `${r.category_code}|${r.category_name}`;
+        if (!catIndex.has(key)) {
+          catIndex.set(key, categoryGroups.length);
+          categoryGroups.push({ code: r.category_code || '', name: r.category_name || '', rows: [] });
+        }
+        categoryGroups[catIndex.get(key)!].rows.push(r);
+      }
+
+      const countStatuses = (rows: any[]) => {
+        let c = 0, nc = 0, na = 0, nv = 0;
+        for (const r of rows) {
+          if (r.status === 'C') c++;
+          else if (r.status === 'NC') nc++;
+          else if (r.status === 'NA') na++;
+          else if (r.status === 'NV') nv++;
+        }
+        const denom = c + nc;
+        const pct = denom > 0 ? Math.round((c / denom) * 1000) / 10 : null;
+        return { c, nc, na, nv, total: rows.length, pct };
+      };
+
+      const mkHeaderCell = (text: string, size: number) =>
+        new TableCell({
+          shading: { fill: '1F4E79' },
+          verticalAlign: VerticalAlign.CENTER,
+          width: { size, type: WidthType.PERCENTAGE },
+          children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 20 })] })],
+        });
 
       if (allResponses.rows.length > 0) {
-        const mkHeaderCell = (text: string, size: number) =>
+        // ---------- Category Summary table ----------
+        docChildren.push(
+          new Paragraph({
+            text: 'Category Summary',
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 200, after: 200 },
+          })
+        );
+
+        const numCell = (text: string, shading: string, bold = false, color = '000000') =>
           new TableCell({
-            shading: { fill: '1F4E79' },
+            shading: { fill: shading },
             verticalAlign: VerticalAlign.CENTER,
-            width: { size, type: WidthType.PERCENTAGE },
-            children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 20 })] })],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text, bold, color, size: 18 })] })],
           });
 
-        const checklistHeader = new TableRow({
+        const summaryHeader = new TableRow({
           tableHeader: true,
           children: [
-            mkHeaderCell('S.No', 5),
-            mkHeaderCell('Category', 16),
-            mkHeaderCell('Audit Point', 29),
-            mkHeaderCell('Status', 10),
-            mkHeaderCell('Observation', 15),
-            mkHeaderCell('Evidence', 25),
+            mkHeaderCell('Category', 44),
+            mkHeaderCell('Items', 11),
+            mkHeaderCell('Compliant', 13),
+            mkHeaderCell('NC', 10),
+            mkHeaderCell('N/A', 10),
+            mkHeaderCell('Compliance %', 12),
           ],
         });
 
-        const checklistRows = allResponses.rows.map((r: any, idx: number) => {
-          const meta = statusMeta[r.status] || { label: r.status || '-', color: '000000' };
-          const shading = idx % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
-          const cell = (children: Paragraph[]) =>
-            new TableCell({ shading: { fill: shading }, verticalAlign: VerticalAlign.TOP, children });
-
-          // Embed every evidence photo for this item (compliant or not)
-          const evParas: Paragraph[] = [];
-          for (const ev of (r.evidence || [])) {
-            const p = buildEvidenceImage(ev.filePath, ev.fileType);
-            if (p) evParas.push(p);
-          }
-          if (evParas.length === 0) {
-            evParas.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '-', color: '999999', size: 16 })] }));
-          }
-
+        const summaryRows = categoryGroups.map((g, i) => {
+          const s = countStatuses(g.rows);
+          const shading = i % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
           return new TableRow({
             children: [
-              cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })]),
-              cell([new Paragraph({ children: [new TextRun({ text: r.category_name || '', size: 18 })] })]),
-              cell([new Paragraph({ children: [new TextRun({ text: r.audit_point || '', size: 18 })] })]),
-              cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: meta.label, bold: true, color: meta.color, size: 18 })] })]),
-              cell([new Paragraph({ children: [new TextRun({ text: r.observation || '', size: 18 })] })]),
-              cell(evParas),
+              new TableCell({
+                shading: { fill: shading },
+                verticalAlign: VerticalAlign.CENTER,
+                children: [new Paragraph({ children: [new TextRun({ text: `${g.code}. ${g.name}`, size: 18 })] })],
+              }),
+              numCell(String(s.total), shading),
+              numCell(String(s.c), shading, false, '008000'),
+              numCell(String(s.nc), shading, false, 'C00000'),
+              numCell(String(s.na), shading),
+              numCell(s.pct != null ? `${s.pct}%` : '-', shading, true),
             ],
           });
         });
 
-        docChildren.push(
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [checklistHeader, ...checklistRows],
+        const overall = countStatuses(allResponses.rows);
+        summaryRows.push(
+          new TableRow({
+            children: [
+              new TableCell({ shading: { fill: 'DDEBF7' }, verticalAlign: VerticalAlign.CENTER, children: [new Paragraph({ children: [new TextRun({ text: 'Overall', bold: true, size: 18 })] })] }),
+              numCell(String(overall.total), 'DDEBF7', true),
+              numCell(String(overall.c), 'DDEBF7', true, '008000'),
+              numCell(String(overall.nc), 'DDEBF7', true, 'C00000'),
+              numCell(String(overall.na), 'DDEBF7', true),
+              numCell(overall.pct != null ? `${overall.pct}%` : '-', 'DDEBF7', true),
+            ],
           })
         );
+
+        docChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [summaryHeader, ...summaryRows] }));
+
+        // ---------- Detailed checklist, one section per category ----------
+        docChildren.push(
+          new Paragraph({
+            text: 'Detailed Checklist by Category',
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 400, after: 100 },
+          })
+        );
+
+        for (const g of categoryGroups) {
+          const s = countStatuses(g.rows);
+
+          docChildren.push(
+            new Paragraph({
+              spacing: { before: 300, after: 100 },
+              keepNext: true,
+              children: [
+                new TextRun({ text: `${g.code}. ${g.name}`, bold: true, size: 26, color: '1F4E79' }),
+                new TextRun({ text: `   —   ${s.pct != null ? s.pct + '%' : 'N/A'} (${s.c} Compliant, ${s.nc} NC)`, size: 20, color: '666666' }),
+              ],
+            })
+          );
+
+          const header = new TableRow({
+            tableHeader: true,
+            children: [
+              mkHeaderCell('S.No', 6),
+              mkHeaderCell('Audit Point', 36),
+              mkHeaderCell('Status', 12),
+              mkHeaderCell('Observation', 18),
+              mkHeaderCell('Evidence', 28),
+            ],
+          });
+
+          const rows = g.rows.map((r: any, idx: number) => {
+            const meta = statusMeta[r.status] || { label: r.status || '-', color: '000000' };
+            const shading = idx % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
+            const cell = (children: Paragraph[]) =>
+              new TableCell({ shading: { fill: shading }, verticalAlign: VerticalAlign.TOP, children });
+
+            const evParas: Paragraph[] = [];
+            for (const ev of (r.evidence || [])) {
+              const p = buildEvidenceImage(ev.filePath, ev.fileType);
+              if (p) evParas.push(p);
+            }
+            if (evParas.length === 0) {
+              evParas.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '-', color: '999999', size: 16 })] }));
+            }
+
+            return new TableRow({
+              children: [
+                cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })]),
+                cell([new Paragraph({ children: [new TextRun({ text: r.audit_point || '', size: 18 })] })]),
+                cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: meta.label, bold: true, color: meta.color, size: 18 })] })]),
+                cell([new Paragraph({ children: [new TextRun({ text: r.observation || '', size: 18 })] })]),
+                cell(evParas),
+              ],
+            });
+          });
+
+          docChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header, ...rows] }));
+        }
       } else {
         docChildren.push(
           new Paragraph({
