@@ -1681,53 +1681,34 @@ export class AuditController {
         [id]
       );
 
-      // Helper function to load image safely and get dimensions
-      const loadImageWithDimensions = (filePath: string): { data: Buffer; width: number; height: number } | null => {
-        try {
-          const fullPath = path.resolve(filePath);
-          if (fs.existsSync(fullPath)) {
-            const data = fs.readFileSync(fullPath);
-
-            // Try to get image dimensions from PNG/JPEG header
-            let width = 0, height = 0;
-
-            // PNG: dimensions at bytes 16-23
-            if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
-              width = data.readUInt32BE(16);
-              height = data.readUInt32BE(20);
-            }
-            // JPEG: search for SOF0 marker
-            else if (data[0] === 0xFF && data[1] === 0xD8) {
-              let offset = 2;
-              while (offset < data.length - 8) {
-                if (data[offset] === 0xFF) {
-                  const marker = data[offset + 1];
-                  if (marker >= 0xC0 && marker <= 0xC3) {
-                    height = data.readUInt16BE(offset + 5);
-                    width = data.readUInt16BE(offset + 7);
-                    break;
-                  }
-                  const length = data.readUInt16BE(offset + 2);
-                  offset += 2 + length;
-                } else {
-                  offset++;
-                }
-              }
-            }
-
-            // Default dimensions if we couldn't read them
-            if (width === 0 || height === 0) {
-              width = 400;
-              height = 300;
-            }
-
-            return { data, width, height };
+      // Pre-compress every NC evidence image ONCE (resize to max 1000px + JPEG
+      // q70, EXIF-rotated) so the report stays small even with many photos.
+      const compressedImages = new Map<string, { data: Buffer; width: number; height: number }>();
+      const ncEvidencePaths = new Set<string>();
+      for (const r of ncResponses.rows) {
+        for (const ev of (r.evidence || [])) {
+          if (ev.filePath && ev.fileType && ev.fileType.startsWith('image/')) {
+            ncEvidencePaths.add(ev.filePath);
           }
-        } catch (err) {
-          logger.warn(`Could not load image: ${filePath}`);
         }
-        return null;
-      };
+      }
+      await Promise.all(
+        Array.from(ncEvidencePaths).map(async (fp) => {
+          try {
+            const fullPath = path.resolve(fp);
+            if (!fs.existsSync(fullPath)) return;
+            const data = await sharp(fullPath)
+              .rotate()
+              .resize({ width: 1000, withoutEnlargement: true })
+              .jpeg({ quality: 70 })
+              .toBuffer();
+            const meta = await sharp(data).metadata();
+            compressedImages.set(fp, { data, width: meta.width || 1000, height: meta.height || 750 });
+          } catch (err) {
+            logger.warn(`Could not compress NC evidence image: ${fp}`);
+          }
+        })
+      );
 
       // Scale image to fit within max dimensions while preserving aspect ratio
       const scaleImage = (origWidth: number, origHeight: number, maxWidth: number, maxHeight: number) => {
@@ -1827,7 +1808,7 @@ export class AuditController {
 
         for (const photo of evidence) {
           if (photo.filePath && photo.fileType && photo.fileType.startsWith('image/')) {
-            const imageInfo = loadImageWithDimensions(photo.filePath);
+            const imageInfo = compressedImages.get(photo.filePath);
             if (imageInfo) {
               // Scale to fit max 140x120 while preserving aspect ratio
               const scaled = scaleImage(imageInfo.width, imageInfo.height, 140, 120);
@@ -1839,7 +1820,7 @@ export class AuditController {
                   new ImageRun({
                     data: imageInfo.data,
                     transformation: { width: scaled.width, height: scaled.height },
-                    type: getImageType(photo.fileType, photo.filePath),
+                    type: 'jpg',
                   }),
                 ],
               });
