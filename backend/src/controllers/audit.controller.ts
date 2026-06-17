@@ -27,6 +27,8 @@ import {
   ShadingType,
   TableBorders,
   convertInchesToTwip,
+  convertMillimetersToTwip,
+  PageOrientation,
 } from 'docx';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1747,69 +1749,70 @@ export class AuditController {
       // Build table rows
       const tableRows: TableRow[] = [];
 
-      // Header row with professional styling
-      const headerRow = new TableRow({
-        tableHeader: true,
-        height: { value: 600, rule: 'atLeast' as const },
-        children: [
-          new TableCell({
-            width: { size: 6, type: WidthType.PERCENTAGE },
-            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'S.No', bold: true, color: 'FFFFFF', size: 22 })],
-              }),
-            ],
-          }),
-          new TableCell({
-            width: { size: 22, type: WidthType.PERCENTAGE },
-            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'EVIDENCE PHOTOS', bold: true, color: 'FFFFFF', size: 22 })],
-              }),
-            ],
-          }),
-          new TableCell({
-            width: { size: 10, type: WidthType.PERCENTAGE },
-            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'Risk Level', bold: true, color: 'FFFFFF', size: 22 })],
-              }),
-            ],
-          }),
-          new TableCell({
-            width: { size: 32, type: WidthType.PERCENTAGE },
-            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'Reference & Recommendation', bold: true, color: 'FFFFFF', size: 22 })],
-              }),
-            ],
-          }),
-          new TableCell({
-            width: { size: 30, type: WidthType.PERCENTAGE },
-            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'Evidence Photos & Remarks', bold: true, color: 'FFFFFF', size: 22 })],
-              }),
-            ],
-          }),
-        ],
-      });
-      tableRows.push(headerRow);
+      // Header cell helper — dark-blue fill, centered white bold text.
+      // rowSpan/colSpan let the "Follow up" columns sit above two sub-columns.
+      const hCell = (
+        text: string,
+        size: number,
+        opts: { rowSpan?: number; columnSpan?: number } = {}
+      ) =>
+        new TableCell({
+          width: { size, type: WidthType.PERCENTAGE },
+          shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+          verticalAlign: VerticalAlign.CENTER,
+          rowSpan: opts.rowSpan,
+          columnSpan: opts.columnSpan,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 18 })],
+            }),
+          ],
+        });
+
+      // Two-row header. Existing columns span both rows; the two Follow-up
+      // columns span two sub-columns each (Date | Remark).
+      tableRows.push(
+        new TableRow({
+          tableHeader: true,
+          height: { value: 400, rule: 'atLeast' as const },
+          children: [
+            hCell('S.No', 4, { rowSpan: 2 }),
+            hCell('EVIDENCE PHOTOS', 15, { rowSpan: 2 }),
+            hCell('Risk Level', 6, { rowSpan: 2 }),
+            hCell('Reference & Recommendation', 23, { rowSpan: 2 }),
+            hCell('Evidence Photos & Remarks', 18, { rowSpan: 2 }),
+            hCell('Follow up 1', 17, { columnSpan: 2 }),
+            hCell('Follow up 2', 17, { columnSpan: 2 }),
+          ],
+        })
+      );
+      tableRows.push(
+        new TableRow({
+          tableHeader: true,
+          height: { value: 300, rule: 'atLeast' as const },
+          children: [
+            hCell('Date', 6),
+            hCell('Remark', 11),
+            hCell('Date', 6),
+            hCell('Remark', 11),
+          ],
+        })
+      );
+
+      // Blank Follow-up cells (FU1 Date | FU1 Remark | FU2 Date | FU2 Remark).
+      // Left empty on purpose so the date and remark can be written by hand on
+      // each follow-up visit. Widths match the sub-header above.
+      const followUpCells = (rowShading: string) =>
+        [6, 11, 6, 11].map(
+          (w) =>
+            new TableCell({
+              width: { size: w, type: WidthType.PERCENTAGE },
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.TOP,
+              children: [new Paragraph({ children: [new TextRun({ text: '', size: 18 })] })],
+            })
+        );
 
       // Data rows
       let serialNo = 1;
@@ -2000,6 +2003,8 @@ export class AuditController {
                 }),
               ],
             }),
+            // Follow up 1 — Date | Remark (blank, filled in by hand on revisits)
+            ...followUpCells(rowShading),
           ],
         });
 
@@ -2165,6 +2170,15 @@ export class AuditController {
           {
             properties: {
               page: {
+                // Landscape A4 — the extra width gives the Follow-up 1/2
+                // columns room without cramping the others. Pass the A4
+                // portrait dimensions (210 x 297mm); the docx library swaps
+                // width/height itself when orientation is LANDSCAPE.
+                size: {
+                  orientation: PageOrientation.LANDSCAPE,
+                  width: convertMillimetersToTwip(210),
+                  height: convertMillimetersToTwip(297),
+                },
                 margin: {
                   top: convertInchesToTwip(1),
                   bottom: convertInchesToTwip(0.75),
