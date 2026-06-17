@@ -1759,12 +1759,13 @@ export class AuditController {
           height: { value: 400, rule: 'atLeast' as const },
           children: [
             hCell('S.No', 4, { rowSpan: 2 }),
-            hCell('EVIDENCE PHOTOS', 15, { rowSpan: 2 }),
-            hCell('Risk Level', 6, { rowSpan: 2 }),
-            hCell('Reference & Recommendation', 23, { rowSpan: 2 }),
-            hCell('Evidence Photos & Remarks', 18, { rowSpan: 2 }),
-            hCell('Follow up 1', 17, { columnSpan: 2 }),
-            hCell('Follow up 2', 17, { columnSpan: 2 }),
+            hCell('EVIDENCE PHOTOS', 14, { rowSpan: 2 }),
+            hCell('Risk Level', 5, { rowSpan: 2 }),
+            hCell('Reference & Recommendation', 20, { rowSpan: 2 }),
+            hCell('Evidence Photos & Remarks', 15, { rowSpan: 2 }),
+            hCell('Follow up 1', 15, { columnSpan: 2 }),
+            hCell('Follow up 2', 15, { columnSpan: 2 }),
+            hCell('Remark', 12, { rowSpan: 2 }),
           ],
         })
       );
@@ -1774,9 +1775,9 @@ export class AuditController {
           height: { value: 300, rule: 'atLeast' as const },
           children: [
             hCell('Date', 6),
-            hCell('Remark', 11),
+            hCell('Remark', 9),
             hCell('Date', 6),
-            hCell('Remark', 11),
+            hCell('Remark', 9),
           ],
         })
       );
@@ -1785,7 +1786,7 @@ export class AuditController {
       // Left empty on purpose so the date and remark can be written by hand on
       // each follow-up visit. Widths match the sub-header above.
       const followUpCells = (rowShading: string) =>
-        [6, 11, 6, 11].map(
+        [6, 9, 6, 9].map(
           (w) =>
             new TableCell({
               width: { size: w, type: WidthType.PERCENTAGE },
@@ -1984,8 +1985,15 @@ export class AuditController {
                 }),
               ],
             }),
-            // Follow up 1 — Date | Remark (blank, filled in by hand on revisits)
+            // Follow up 1 & 2 — Date | Remark (blank, filled in by hand on revisits)
             ...followUpCells(rowShading),
+            // Trailing Remark column (blank, for a final hand-written remark)
+            new TableCell({
+              width: { size: 12, type: WidthType.PERCENTAGE },
+              shading: { fill: rowShading, type: ShadingType.CLEAR },
+              verticalAlign: VerticalAlign.TOP,
+              children: [new Paragraph({ children: [new TextRun({ text: '', size: 18 })] })],
+            }),
           ],
         });
 
