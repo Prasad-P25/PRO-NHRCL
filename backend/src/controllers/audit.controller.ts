@@ -1491,8 +1491,8 @@ export class AuditController {
           photoChildren.push(new Paragraph({ children: [new TextRun({ text: 'No photo', italics: true })] , alignment: AlignmentType.CENTER }));
         }
 
-        // Determine risk level (NC1 = High/Critical, NC2 = Low/Medium)
-        const riskLevel = response.risk_rating === 'High' || response.risk_rating === 'Critical' ? 'NC1' : 'NC2';
+        // Determine risk level (P1 = High/Critical, P2 = Low/Medium)
+        const riskLevel = response.risk_rating === 'High' || response.risk_rating === 'Critical' ? 'P1' : 'P2';
 
         // Reference and recommendation
         const reference = `${response.section_code || ''}: ${response.audit_point || ''}`;
@@ -1521,7 +1521,7 @@ export class AuditController {
                       new TextRun({
                         text: riskLevel,
                         bold: true,
-                        color: riskLevel === 'NC1' ? 'FF0000' : 'FFA500',
+                        color: riskLevel === 'P1' ? 'FF0000' : 'FFA500',
                       }),
                     ],
                   }),
@@ -1863,12 +1863,12 @@ export class AuditController {
           );
         }
 
-        // Determine risk level: High/Critical -> NC 1, Major/Minor -> NC 2
+        // Determine risk level: High/Critical -> P1, Major/Minor -> P2
         // (unified with exportToWord's mapping)
         const riskRating = response.risk_rating || 'Major';
-        const isNC1 = riskRating === 'Critical' || riskRating === 'High';
-        const riskLevelText = isNC1 ? 'NC 1' : 'NC 2';
-        const riskColor = isNC1 ? 'FF0000' : 'FF8C00'; // Red for NC1, Orange for NC2
+        const isP1 = riskRating === 'Critical' || riskRating === 'High';
+        const riskLevelText = isP1 ? 'P1' : 'P2';
+        const riskColor = isP1 ? 'FF0000' : 'FF8C00'; // Red for P1, Orange for P2
 
         // Build reference & recommendation content
         const refChildren: Paragraph[] = [];
@@ -2044,9 +2044,11 @@ export class AuditController {
         })
       );
 
-      // Count NC1 and NC2
-      const nc1Count = ncResponses.rows.filter((r: any) => r.risk_rating === 'Critical').length;
-      const nc2Count = ncResponses.rows.length - nc1Count;
+      // Count P1 and P2 (same mapping as the Risk Level column: Critical/High = P1)
+      const p1Count = ncResponses.rows.filter(
+        (r: any) => r.risk_rating === 'Critical' || r.risk_rating === 'High'
+      ).length;
+      const p2Count = ncResponses.rows.length - p1Count;
 
       docChildren.push(
         new Paragraph({
@@ -2059,15 +2061,15 @@ export class AuditController {
         new Paragraph({
           spacing: { after: 100 },
           children: [
-            new TextRun({ text: 'NC 1 (Critical): ', bold: true, color: 'FF0000', size: 22 }),
-            new TextRun({ text: String(nc1Count), size: 22 }),
+            new TextRun({ text: 'P1 (Critical/High): ', bold: true, color: 'FF0000', size: 22 }),
+            new TextRun({ text: String(p1Count), size: 22 }),
           ],
         }),
         new Paragraph({
           spacing: { after: 100 },
           children: [
-            new TextRun({ text: 'NC 2 (Major/Minor): ', bold: true, color: 'FF8C00', size: 22 }),
-            new TextRun({ text: String(nc2Count), size: 22 }),
+            new TextRun({ text: 'P2 (Major/Minor): ', bold: true, color: 'FF8C00', size: 22 }),
+            new TextRun({ text: String(p2Count), size: 22 }),
           ],
         })
       );
