@@ -1775,9 +1775,9 @@ export class AuditController {
           height: { value: 300, rule: 'atLeast' as const },
           children: [
             hCell('Date', 6),
-            hCell('Remark', 9),
+            hCell('Open / close', 9),
             hCell('Date', 6),
-            hCell('Remark', 9),
+            hCell('Open / close', 9),
           ],
         })
       );
