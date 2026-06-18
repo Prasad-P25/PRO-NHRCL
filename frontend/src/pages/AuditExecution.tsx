@@ -1,24 +1,5 @@
 import { useState, useEffect, useRef, type DragEvent } from 'react';
-import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-
-// Resolve once the <video> has a real, painted frame to capture. Drawing the
-// canvas before this (readyState < HAVE_CURRENT_DATA, or zero dimensions)
-// produces a black image — the bug some phones hit on capture.
-const waitForVideoFrame = (video: HTMLVideoElement, timeoutMs = 3000): Promise<boolean> =>
-  new Promise((resolve) => {
-    const start = performance.now();
-    const check = () => {
-      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-        resolve(true);
-      } else if (performance.now() - start > timeoutMs) {
-        resolve(false);
-      } else {
-        requestAnimationFrame(check);
-      }
-    };
-    check();
-  });
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -144,10 +125,11 @@ export function AuditExecutionPage() {
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  // Native-camera capture input (capture="environment"). Opens the phone's own
+  // camera app and returns a real full-resolution JPEG — far more reliable
+  // across devices than a custom getUserMedia + canvas capture, which produced
+  // black frames on some phones.
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Approve/Reject state
   const [showRejectDialog, setShowRejectDialog] = useState(false);
@@ -364,24 +346,6 @@ export function AuditExecutionPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-
-  // Attach the camera stream to the <video> once the overlay has mounted, and
-  // start playback. Doing this in an effect (rather than a setTimeout in
-  // startCamera) guarantees the video element exists and that playback is
-  // (re)started reliably across phones.
-  useEffect(() => {
-    if (!isCameraOpen || !cameraStream) return;
-    const video = videoRef.current;
-    if (!video) return;
-    video.srcObject = cameraStream;
-    const tryPlay = () => video.play().catch(() => {});
-    if (video.readyState >= 1) {
-      tryPlay();
-    } else {
-      video.addEventListener('loadedmetadata', tryPlay, { once: true });
-    }
-    return () => video.removeEventListener('loadedmetadata', tryPlay);
-  }, [isCameraOpen, cameraStream]);
 
   // Refs so the window-level paste listener always uses the latest handler/item.
   // (These hooks MUST stay above the early `if (isLoading) return` below.)
@@ -768,78 +732,6 @@ export function AuditExecutionPage() {
       console.error('Delete failed:', error);
       alert('Failed to delete evidence. Please try again.');
     }
-  };
-
-  // Camera capture functions
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      setCameraStream(stream);
-      setIsCameraOpen(true);
-      // The stream is attached to the <video> by an effect once the camera
-      // overlay has actually mounted (more reliable than a fixed setTimeout).
-    } catch (error) {
-      console.error('Camera access failed:', error);
-      alert('Unable to access camera. Please check permissions or use file upload instead.');
-    }
-  };
-
-  const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
-    }
-    setIsCameraOpen(false);
-  };
-
-  const capturePhoto = async () => {
-    if (!videoRef.current || !canvasRef.current || !selectedItem) return;
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-
-    // Don't capture until the camera has delivered a real frame, otherwise the
-    // canvas draws black. Show feedback instead of silently uploading black.
-    const ready = await waitForVideoFrame(video);
-    if (!ready || video.videoWidth === 0 || video.videoHeight === 0) {
-      alert('Camera is still starting. Please wait a second and tap the capture button again.');
-      return;
-    }
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Draw video frame to canvas
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Add timestamp overlay, scaled to the image so it stays legible on
-    // high-resolution captures.
-    const timestamp = new Date().toLocaleString();
-    const barHeight = Math.max(30, Math.round(canvas.height * 0.045));
-    const fontSize = Math.round(barHeight * 0.55);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
-    ctx.fillStyle = 'white';
-    ctx.font = `${fontSize}px Arial`;
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`Captured: ${timestamp}`, 10, canvas.height - barHeight / 2);
-
-    // Convert to blob and upload
-    canvas.toBlob(async (blob) => {
-      if (blob && selectedItem) {
-        const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        await handleFileUpload(file, selectedItem.id);
-        stopCamera();
-      } else {
-        alert('Could not save the captured photo. Please try again.');
-      }
-    }, 'image/jpeg', 0.9);
   };
 
   // Calculate progress
@@ -1458,6 +1350,22 @@ export function AuditExecutionPage() {
                       e.target.value = '';
                     }}
                   />
+                  {/* Native camera: capture="environment" opens the rear camera
+                      directly on phones and returns a real JPEG. */}
+                  <input
+                    type="file"
+                    ref={cameraInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && selectedItem) {
+                        handleFileUpload(file, selectedItem.id);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
                   <input
                     type="file"
                     ref={documentInputRef}
@@ -1475,9 +1383,13 @@ export function AuditExecutionPage() {
                     variant="default"
                     size="sm"
                     disabled={isUploading}
-                    onClick={startCamera}
+                    onClick={() => cameraInputRef.current?.click()}
                   >
-                    <Camera className="mr-2 h-4 w-4" />
+                    {isUploading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Camera className="mr-2 h-4 w-4" />
+                    )}
                     Capture Photo
                   </Button>
                   <Button
@@ -1540,74 +1452,6 @@ export function AuditExecutionPage() {
                     </>
                   )}
                 </div>
-
-                {/* Camera Preview — full-screen overlay so the capture button
-                    is always visible on mobile (an inline preview pushed the
-                    button below the fold on small screens) */}
-                {isCameraOpen && createPortal(
-                  /* Rendered in a portal on document.body so the overlay is
-                     positioned relative to the viewport, NOT the Radix dialog.
-                     A `position: fixed` element nested inside the dialog's
-                     centering transform would otherwise be trapped inside the
-                     dialog box, pushing the bottom shutter bar off-screen on
-                     some phones. `100dvh` tracks the *visible* viewport so the
-                     controls stay above the mobile browser toolbar. */
-                  <div
-                    className="fixed left-0 top-0 z-[200] flex h-screen w-screen flex-col bg-black"
-                    style={{ height: '100dvh' }}
-                  >
-                    {/* Live preview fills all available space */}
-                    <div className="relative flex-1 min-h-0 flex items-center justify-center overflow-hidden">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="max-h-full max-w-full object-contain"
-                      />
-                      <canvas ref={canvasRef} className="hidden" />
-                      {/* Close (X) in the top corner as a fallback */}
-                      <button
-                        type="button"
-                        onClick={stopCamera}
-                        aria-label="Close camera"
-                        className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white"
-                      >
-                        <X className="h-6 w-6" />
-                      </button>
-                    </div>
-                    {/* Controls pinned to the bottom — always on screen, with
-                        safe-area padding for phones with a home indicator */}
-                    <div
-                      className="flex items-center justify-center gap-4 bg-black px-4 py-5"
-                      style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
-                    >
-                      <Button
-                        variant="outline"
-                        onClick={stopCamera}
-                        className="border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                      >
-                        Cancel
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={capturePhoto}
-                        disabled={isUploading}
-                        aria-label="Take photo"
-                        className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-white/20 disabled:opacity-60"
-                      >
-                        {isUploading ? (
-                          <Loader2 className="h-8 w-8 animate-spin text-white" />
-                        ) : (
-                          <span className="h-12 w-12 rounded-full bg-white" />
-                        )}
-                      </button>
-                      {/* Spacer to keep the shutter button centered */}
-                      <div className="w-[78px]" aria-hidden="true" />
-                    </div>
-                  </div>,
-                  document.body
-                )}
 
                 {/* Display uploaded evidence as thumbnails */}
                 {getResponse(selectedItem.id).evidence.length > 0 && (
