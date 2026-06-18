@@ -207,6 +207,13 @@ export function AuditExecutionPage() {
       setLastSaved(new Date());
       queryClient.invalidateQueries({ queryKey: ['auditResponses', auditId] });
     },
+    onError: (error: any) => {
+      toast({
+        title: 'Save failed',
+        description: error?.response?.data?.message || 'Your responses could not be saved. Check your connection and try again.',
+        variant: 'destructive',
+      });
+    },
   });
 
   // Submit mutation
@@ -320,7 +327,12 @@ export function AuditExecutionPage() {
     return () => {
       clearInterval(autoSaveInterval);
     };
-  }, [autoSaveEnabled, auditData?.status, saveMutation]);
+    // NOTE: `saveMutation` is intentionally excluded. It gets a new object
+    // identity every render, so including it tore down and recreated this
+    // interval on every keystroke/click — meaning the 30s auto-save never
+    // actually fired while the auditor was working. mutateAsync is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSaveEnabled, auditData?.status]);
 
   // Warn before leaving (tab close / reload) with unsaved audit responses
   useEffect(() => {
@@ -483,6 +495,20 @@ export function AuditExecutionPage() {
       setHasUnsavedChanges(false);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // The item detail dialog's "Save Response" button must actually persist to
+  // the server before closing. Previously it only closed the dialog, so the
+  // auditor's status/observation/risk lived in local state and was silently
+  // lost on navigation unless a photo upload or the top-bar Save happened to
+  // flush it. Keep the dialog open if the save fails so input isn't lost.
+  const handleSaveResponseAndClose = async () => {
+    try {
+      await handleSave();
+      setIsDetailDialogOpen(false);
+    } catch {
+      // saveMutation's onError already shows a toast; leave the dialog open.
     }
   };
 
@@ -1585,8 +1611,15 @@ export function AuditExecutionPage() {
             <Button variant="outline" onClick={() => setIsDetailDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => setIsDetailDialogOpen(false)}>
-              Save Response
+            <Button onClick={handleSaveResponseAndClose} disabled={isSaving || saveMutation.isPending}>
+              {isSaving || saveMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Response'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
