@@ -1,6 +1,24 @@
 import { useState, useEffect, useRef, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
+
+// Resolve once the <video> has a real, painted frame to capture. Drawing the
+// canvas before this (readyState < HAVE_CURRENT_DATA, or zero dimensions)
+// produces a black image — the bug some phones hit on capture.
+const waitForVideoFrame = (video: HTMLVideoElement, timeoutMs = 3000): Promise<boolean> =>
+  new Promise((resolve) => {
+    const start = performance.now();
+    const check = () => {
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        resolve(true);
+      } else if (performance.now() - start > timeoutMs) {
+        resolve(false);
+      } else {
+        requestAnimationFrame(check);
+      }
+    };
+    check();
+  });
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -346,6 +364,24 @@ export function AuditExecutionPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
+
+  // Attach the camera stream to the <video> once the overlay has mounted, and
+  // start playback. Doing this in an effect (rather than a setTimeout in
+  // startCamera) guarantees the video element exists and that playback is
+  // (re)started reliably across phones.
+  useEffect(() => {
+    if (!isCameraOpen || !cameraStream) return;
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = cameraStream;
+    const tryPlay = () => video.play().catch(() => {});
+    if (video.readyState >= 1) {
+      tryPlay();
+    } else {
+      video.addEventListener('loadedmetadata', tryPlay, { once: true });
+    }
+    return () => video.removeEventListener('loadedmetadata', tryPlay);
+  }, [isCameraOpen, cameraStream]);
 
   // Refs so the window-level paste listener always uses the latest handler/item.
   // (These hooks MUST stay above the early `if (isLoading) return` below.)
@@ -743,13 +779,8 @@ export function AuditExecutionPage() {
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
-      // Wait for video element to be available
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }, 100);
+      // The stream is attached to the <video> by an effect once the camera
+      // overlay has actually mounted (more reliable than a fixed setTimeout).
     } catch (error) {
       console.error('Camera access failed:', error);
       alert('Unable to access camera. Please check permissions or use file upload instead.');
@@ -769,6 +800,15 @@ export function AuditExecutionPage() {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
+
+    // Don't capture until the camera has delivered a real frame, otherwise the
+    // canvas draws black. Show feedback instead of silently uploading black.
+    const ready = await waitForVideoFrame(video);
+    if (!ready || video.videoWidth === 0 || video.videoHeight === 0) {
+      alert('Camera is still starting. Please wait a second and tap the capture button again.');
+      return;
+    }
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -776,15 +816,19 @@ export function AuditExecutionPage() {
     if (!ctx) return;
 
     // Draw video frame to canvas
-    ctx.drawImage(video, 0, 0);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Add timestamp overlay
+    // Add timestamp overlay, scaled to the image so it stays legible on
+    // high-resolution captures.
     const timestamp = new Date().toLocaleString();
+    const barHeight = Math.max(30, Math.round(canvas.height * 0.045));
+    const fontSize = Math.round(barHeight * 0.55);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+    ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
     ctx.fillStyle = 'white';
-    ctx.font = '14px Arial';
-    ctx.fillText(`Captured: ${timestamp}`, 10, canvas.height - 10);
+    ctx.font = `${fontSize}px Arial`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`Captured: ${timestamp}`, 10, canvas.height - barHeight / 2);
 
     // Convert to blob and upload
     canvas.toBlob(async (blob) => {
@@ -792,6 +836,8 @@ export function AuditExecutionPage() {
         const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
         await handleFileUpload(file, selectedItem.id);
         stopCamera();
+      } else {
+        alert('Could not save the captured photo. Please try again.');
       }
     }, 'image/jpeg', 0.9);
   };
