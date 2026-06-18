@@ -197,11 +197,18 @@ export class AuditController {
         params.push(projectId);
       }
 
-      // Package filter based on user role
+      // Visibility for non-admin roles: their assigned package PLUS any audit
+      // they personally conducted. Without the auditor_id branch, an auditor
+      // who creates an audit for a package other than their assigned one (the
+      // New Audit wizard allows this) could never see it in the list again.
       if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head') {
         if (req.user!.packageId) {
-          query += ` AND a.package_id = $${paramIndex++}`;
-          params.push(req.user!.packageId);
+          query += ` AND (a.package_id = $${paramIndex} OR a.auditor_id = $${paramIndex + 1})`;
+          params.push(req.user!.packageId, req.user!.id);
+          paramIndex += 2;
+        } else {
+          query += ` AND a.auditor_id = $${paramIndex++}`;
+          params.push(req.user!.id);
         }
       }
 
@@ -235,9 +242,15 @@ export class AuditController {
         countQuery += ` AND p.project_id = $${countParamIndex++}`;
         countParams.push(projectId);
       }
-      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head' && req.user!.packageId) {
-        countQuery += ` AND a.package_id = $${countParamIndex++}`;
-        countParams.push(req.user!.packageId);
+      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head') {
+        if (req.user!.packageId) {
+          countQuery += ` AND (a.package_id = $${countParamIndex} OR a.auditor_id = $${countParamIndex + 1})`;
+          countParams.push(req.user!.packageId, req.user!.id);
+          countParamIndex += 2;
+        } else {
+          countQuery += ` AND a.auditor_id = $${countParamIndex++}`;
+          countParams.push(req.user!.id);
+        }
       }
       if (packageId) {
         countQuery += ` AND a.package_id = $${countParamIndex++}`;
