@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type DragEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1497,8 +1498,18 @@ export function AuditExecutionPage() {
                 {/* Camera Preview — full-screen overlay so the capture button
                     is always visible on mobile (an inline preview pushed the
                     button below the fold on small screens) */}
-                {isCameraOpen && (
-                  <div className="fixed inset-0 z-[100] flex flex-col bg-black">
+                {isCameraOpen && createPortal(
+                  /* Rendered in a portal on document.body so the overlay is
+                     positioned relative to the viewport, NOT the Radix dialog.
+                     A `position: fixed` element nested inside the dialog's
+                     centering transform would otherwise be trapped inside the
+                     dialog box, pushing the bottom shutter bar off-screen on
+                     some phones. `100dvh` tracks the *visible* viewport so the
+                     controls stay above the mobile browser toolbar. */
+                  <div
+                    className="fixed left-0 top-0 z-[200] flex h-screen w-screen flex-col bg-black"
+                    style={{ height: '100dvh' }}
+                  >
                     {/* Live preview fills all available space */}
                     <div className="relative flex-1 min-h-0 flex items-center justify-center overflow-hidden">
                       <video
@@ -1548,7 +1559,8 @@ export function AuditExecutionPage() {
                       {/* Spacer to keep the shutter button centered */}
                       <div className="w-[78px]" aria-hidden="true" />
                     </div>
-                  </div>
+                  </div>,
+                  document.body
                 )}
 
                 {/* Display uploaded evidence as thumbnails */}
