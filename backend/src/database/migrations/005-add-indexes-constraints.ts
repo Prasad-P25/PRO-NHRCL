@@ -35,7 +35,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_audit_responses_status') THEN
         ALTER TABLE audit_responses ADD CONSTRAINT chk_audit_responses_status
-            CHECK (status IN ('C', 'NC', 'NA', 'NV')) NOT VALID;
+            CHECK (status IN ('C', 'NC', 'NA', 'NV', 'RM')) NOT VALID;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_capa_status') THEN
         ALTER TABLE capa ADD CONSTRAINT chk_capa_status

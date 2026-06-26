@@ -13,6 +13,8 @@ import {
   X,
   Minus,
   HelpCircle,
+  Ban,
+  RotateCcw,
   Loader2,
   RefreshCw,
   Trash2,
@@ -84,6 +86,8 @@ interface CategoryWithSections {
   name: string;
   itemCount: number;
   completedCount: number;
+  removedCount: number;
+  effectiveItemCount: number;
   sections: {
     id: number;
     code: string;
@@ -417,16 +421,27 @@ export function AuditExecutionPage() {
   const categories: CategoryWithSections[] = (allCategories || [])
     .filter((cat) => auditData.categories?.some((ac: { id: number }) => ac.id === cat.id))
     .map((cat) => {
-      const completedCount = cat.sections?.reduce((acc: number, sec: { items?: AuditItem[] }) => {
-        return acc + (sec.items?.filter((item: AuditItem) => responses[item.id]?.status !== null).length || 0);
-      }, 0) || 0;
+      // Removed (RM) items are excluded from the audit: they don't count as
+      // "completed" and they shrink the effective denominator.
+      let completedCount = 0;
+      let removedCount = 0;
+      cat.sections?.forEach((sec: { items?: AuditItem[] }) => {
+        sec.items?.forEach((item: AuditItem) => {
+          const s = responses[item.id]?.status;
+          if (s === 'RM') removedCount++;
+          else if (s != null) completedCount++;
+        });
+      });
+      const itemCount = cat.itemCount || 0;
 
       return {
         id: cat.id,
         code: cat.code,
         name: cat.name,
-        itemCount: cat.itemCount || 0,
+        itemCount,
         completedCount,
+        removedCount,
+        effectiveItemCount: Math.max(0, itemCount - removedCount),
         sections: cat.sections || [],
       };
     });
@@ -557,22 +572,22 @@ export function AuditExecutionPage() {
   const handleExportPDF = () => {
     if (!auditData || !categories) return;
 
-    // Calculate summary
+    // Calculate summary. Removed (RM) items are excluded from the report.
     const allResponses = Object.values(responses);
     const summary = {
-      totalItems: totalItems,
+      totalItems: effectiveTotal,
       compliant: allResponses.filter((r) => r.status === 'C').length,
       nonCompliant: allResponses.filter((r) => r.status === 'NC').length,
       notApplicable: allResponses.filter((r) => r.status === 'NA').length,
       notVerified: allResponses.filter((r) => r.status === 'NV').length,
     };
 
-    // Build categories data for PDF
+    // Build categories data for PDF (removed items are dropped entirely)
     const pdfCategories = categories.map((cat) => ({
       name: `${cat.code}. ${cat.name}`,
       sections: cat.sections.map((sec) => ({
         name: `${sec.code}. ${sec.name}`,
-        items: (sec.items || []).map((item) => {
+        items: (sec.items || []).filter((item) => getResponse(item.id).status !== 'RM').map((item) => {
           const resp = getResponse(item.id);
           return {
             srNo: item.srNo,
@@ -734,10 +749,13 @@ export function AuditExecutionPage() {
     }
   };
 
-  // Calculate progress
+  // Calculate progress. Removed (RM) items are excluded from both the
+  // numerator (completed) and the denominator (effective total).
   const totalItems = categories.reduce((acc, cat) => acc + cat.itemCount, 0);
-  const completedCount = Object.values(responses).filter((r) => r.status !== null).length;
-  const progress = totalItems > 0 ? (completedCount / totalItems) * 100 : 0;
+  const removedCount = Object.values(responses).filter((r) => r.status === 'RM').length;
+  const effectiveTotal = Math.max(0, totalItems - removedCount);
+  const completedCount = Object.values(responses).filter((r) => r.status !== null && r.status !== 'RM').length;
+  const progress = effectiveTotal > 0 ? (completedCount / effectiveTotal) * 100 : 0;
 
   const StatusButton = ({
     itemId,
@@ -790,6 +808,9 @@ export function AuditExecutionPage() {
       </span>
       <span className="flex items-center gap-1">
         <HelpCircle className="h-3 w-3 text-yellow-600" /> NV = Not Verified
+      </span>
+      <span className="flex items-center gap-1">
+        <Ban className="h-3 w-3 text-gray-500" /> RM = Removed (excluded from reports)
       </span>
     </div>
   );
@@ -935,7 +956,7 @@ export function AuditExecutionPage() {
         <CardContent className="py-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">
-              Progress: {completedCount}/{totalItems}
+              Progress: {completedCount}/{effectiveTotal}{removedCount > 0 ? ` (${removedCount} removed)` : ''}
             </span>
             <span className="text-sm text-muted-foreground">
               {Math.round(progress)}%
@@ -1072,7 +1093,7 @@ export function AuditExecutionPage() {
                       )}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {category.completedCount}/{category.itemCount}
+                      {category.completedCount}/{category.effectiveItemCount}
                     </span>
                   </button>
                 );
@@ -1138,7 +1159,10 @@ export function AuditExecutionPage() {
                               return (
                                 <div
                                   key={item.id}
-                                  className="flex items-start gap-4 border-b last:border-b-0 px-4 py-3"
+                                  className={cn(
+                                    'flex items-start gap-4 border-b last:border-b-0 px-4 py-3',
+                                    response.status === 'RM' && 'opacity-60'
+                                  )}
                                 >
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-start gap-2">
@@ -1146,7 +1170,14 @@ export function AuditExecutionPage() {
                                         {item.srNo}.
                                       </span>
                                       <div className="flex-1">
-                                        <p className="text-sm">{item.auditPoint}</p>
+                                        <p className={cn('text-sm', response.status === 'RM' && 'line-through text-muted-foreground')}>
+                                          {item.auditPoint}
+                                          {response.status === 'RM' && (
+                                            <span className="ml-2 align-middle rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium not-italic no-underline text-muted-foreground">
+                                              Removed — excluded from reports
+                                            </span>
+                                          )}
+                                        </p>
                                         <p className="text-xs text-muted-foreground mt-1">
                                           Ref: {item.standardReference}
                                         </p>
@@ -1166,40 +1197,59 @@ export function AuditExecutionPage() {
                                   </div>
 
                                   <div className="flex items-center gap-2 shrink-0">
-                                    <div className="flex gap-1">
-                                      <StatusButton
-                                        itemId={item.id}
-                                        status="C"
-                                        label="Compliant"
-                                        shortLabel="C"
-                                        icon={Check}
-                                        activeClass="bg-compliant text-white border-compliant"
-                                      />
-                                      <StatusButton
-                                        itemId={item.id}
-                                        status="NC"
-                                        label="Non-Compliant"
-                                        shortLabel="NC"
-                                        icon={X}
-                                        activeClass="bg-non-compliant text-white border-non-compliant"
-                                      />
-                                      <StatusButton
-                                        itemId={item.id}
-                                        status="NA"
-                                        label="Not Applicable"
-                                        shortLabel="NA"
-                                        icon={Minus}
-                                        activeClass="bg-not-applicable text-white border-not-applicable"
-                                      />
-                                      <StatusButton
-                                        itemId={item.id}
-                                        status="NV"
-                                        label="Not Verified"
-                                        shortLabel="NV"
-                                        icon={HelpCircle}
-                                        activeClass="bg-not-verified text-white border-not-verified"
-                                      />
-                                    </div>
+                                    {response.status === 'RM' ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleStatusChange(item.id, 'NV')}
+                                        title="Restore this checkpoint into the audit"
+                                      >
+                                        <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
+                                      </Button>
+                                    ) : (
+                                      <div className="flex gap-1">
+                                        <StatusButton
+                                          itemId={item.id}
+                                          status="C"
+                                          label="Compliant"
+                                          shortLabel="C"
+                                          icon={Check}
+                                          activeClass="bg-compliant text-white border-compliant"
+                                        />
+                                        <StatusButton
+                                          itemId={item.id}
+                                          status="NC"
+                                          label="Non-Compliant"
+                                          shortLabel="NC"
+                                          icon={X}
+                                          activeClass="bg-non-compliant text-white border-non-compliant"
+                                        />
+                                        <StatusButton
+                                          itemId={item.id}
+                                          status="NA"
+                                          label="Not Applicable"
+                                          shortLabel="NA"
+                                          icon={Minus}
+                                          activeClass="bg-not-applicable text-white border-not-applicable"
+                                        />
+                                        <StatusButton
+                                          itemId={item.id}
+                                          status="NV"
+                                          label="Not Verified"
+                                          shortLabel="NV"
+                                          icon={HelpCircle}
+                                          activeClass="bg-not-verified text-white border-not-verified"
+                                        />
+                                        <StatusButton
+                                          itemId={item.id}
+                                          status="RM"
+                                          label="Remove from this audit (excluded from reports)"
+                                          shortLabel="RM"
+                                          icon={Ban}
+                                          activeClass="bg-muted text-foreground border-muted-foreground"
+                                        />
+                                      </div>
+                                    )}
 
                                     <Button
                                       variant="ghost"
@@ -1571,7 +1621,7 @@ export function AuditExecutionPage() {
             )}
 
             <div className="text-sm text-muted-foreground">
-              <p>Completed: {completedCount} / {totalItems} items</p>
+              <p>Completed: {completedCount} / {effectiveTotal} items{removedCount > 0 ? ` (${removedCount} removed)` : ''}</p>
               <p>Compliance rate will be calculated after review.</p>
             </div>
           </div>

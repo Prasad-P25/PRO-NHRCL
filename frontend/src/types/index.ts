@@ -158,7 +158,9 @@ export interface AuditResponse {
   updatedBy?: number;
 }
 
-export type ResponseStatus = 'C' | 'NC' | 'NA' | 'NV';
+// 'RM' = Removed: auditor excluded this checkpoint from the audit (reversible).
+// Removed items are hidden from all reports and dropped from compliance totals.
+export type ResponseStatus = 'C' | 'NC' | 'NA' | 'NV' | 'RM';
 
 export type RiskRating = 'Critical' | 'Major' | 'Minor' | 'Observation';
 
