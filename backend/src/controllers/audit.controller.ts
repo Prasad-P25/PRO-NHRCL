@@ -1257,6 +1257,9 @@ export class AuditController {
       const categoryGroups: { code: string; name: string; rows: any[] }[] = [];
       const catIndex = new Map<string, number>();
       for (const r of allResponses.rows) {
+        // Items the auditor marked "Removed" (RM) are excluded from this audit
+        // entirely: they must not appear in the report nor count toward totals.
+        if (r.status === 'RM') continue;
         const key = `${r.category_code}|${r.category_name}`;
         if (!catIndex.has(key)) {
           catIndex.set(key, categoryGroups.length);

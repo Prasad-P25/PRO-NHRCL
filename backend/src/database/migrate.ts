@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS audit_responses (
     id SERIAL PRIMARY KEY,
     audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE,
     audit_item_id INTEGER REFERENCES audit_items(id),
-    status VARCHAR(5) CHECK (status IN ('C', 'NC', 'NA', 'NV')),
+    status VARCHAR(5) CHECK (status IN ('C', 'NC', 'NA', 'NV', 'RM')),
     observation TEXT,
     risk_rating VARCHAR(20),
     capa_required BOOLEAN DEFAULT false,
