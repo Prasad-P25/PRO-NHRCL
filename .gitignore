@@ -55,3 +55,6 @@ coverage/
 
 # Deploy rollback backups (local only)
 dist_prev/
+
+# Checklist source workbook (data file; reload-checklist.ts falls back to NAS)
+backend/MAHSR_V5.xlsx
