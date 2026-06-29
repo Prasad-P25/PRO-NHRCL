@@ -10,8 +10,41 @@
  */
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
+import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { db } from './connection';
 import { logger } from '../utils/logger';
+
+// Locate pg_dump (PATH, PGDUMP env, or common Windows install paths).
+function findPgDump(): string {
+  const candidates = [
+    process.env.PGDUMP, 'pg_dump',
+    'C:/Program Files/PostgreSQL/17/bin/pg_dump.exe',
+    'C:/Program Files/PostgreSQL/16/bin/pg_dump.exe',
+    'C:/Program Files/PostgreSQL/15/bin/pg_dump.exe',
+  ].filter(Boolean) as string[];
+  for (const c of candidates) {
+    try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch { /* try next */ }
+  }
+  throw new Error('pg_dump not found — set the PGDUMP env var to its full path');
+}
+
+// Take a compressed backup of the target DB before any destructive change.
+function backupDatabase(): string {
+  const dir = path.resolve(process.cwd(), 'backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const dbName = process.env.DB_NAME || 'mahsr_safety';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const out = path.join(dir, `${dbName}_PRE_RELOAD_${stamp}.dump`);
+  const pgDump = findPgDump();
+  execFileSync(pgDump, [
+    '-h', process.env.DB_HOST || 'localhost',
+    '-p', process.env.DB_PORT || '5432',
+    '-U', process.env.DB_USER || 'postgres',
+    '-d', dbName, '-F', 'c', '-f', out,
+  ], { stdio: 'inherit', env: { ...process.env, PGPASSWORD: process.env.DB_PASSWORD || '' } });
+  return out;
+}
 
 const EXCEL_CANDIDATES = [
   'C:/PROJECTS/PRO-NHRCL/backend/MAHSR_V5.xlsx',
@@ -119,6 +152,26 @@ async function main() {
   const grand = cats.reduce((s, c) => s + c.sections.reduce((y, x) => y + x.items.length, 0), 0);
   logger.info(`PARSED: ${cats.length} categories, ${grand} items total`);
   if (process.env.DRY === '1') { logger.info('DRY run - no DB changes'); process.exit(0); }
+
+  // --- Safety guard: never silently destroy real audit data ---
+  // This reload does TRUNCATE audit_categories, audits CASCADE, which deletes
+  // ALL audits + responses. Refuse if real audit data exists unless FORCE=1,
+  // and always take a backup first when there is anything to lose.
+  const auditCount = (await db.query('SELECT COUNT(*)::int n FROM audits')).rows[0].n;
+  const respCount = (await db.query('SELECT COUNT(*)::int n FROM audit_responses')).rows[0].n;
+  if (auditCount > 0 || respCount > 0) {
+    if (process.env.FORCE !== '1') {
+      logger.error(
+        `Refusing to reload: this would DELETE ${auditCount} audit(s) and ${respCount} response(s) ` +
+        `via TRUNCATE ... CASCADE. If you really mean it, re-run with FORCE=1 ` +
+        `(a backup is taken automatically first).`
+      );
+      process.exit(1);
+    }
+    logger.warn(`FORCE=1 set — backing up before destroying ${auditCount} audit(s) / ${respCount} response(s)...`);
+    const backup = backupDatabase();
+    logger.warn(`Backup written: ${backup}`);
+  }
 
   await db.transaction(async (client) => {
     logger.info('Wiping old checklist + dependent audit data (CASCADE)...');
