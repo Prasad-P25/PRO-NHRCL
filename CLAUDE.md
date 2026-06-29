@@ -326,21 +326,53 @@ MAX_FILE_SIZE=10485760
 
 Frontend uses `VITE_API_URL` env var (defaults to `/api/v1`).
 
+### Secrets & Database Roles
+
+- **`backend/.env` is the single source of secrets** (DB password, JWT secret, SMTP).
+  It is gitignored and **must never be committed**. On the prod host it is ACL-locked to
+  the run-as account + SYSTEM only (`icacls .env /grant "<host>\IT:(M)"` and SYSTEM:(F),
+  inheritance removed). The run-as account MUST retain at least read — if only SYSTEM has
+  access the backend can't read its own `.env` and fails to start.
+- **Least-privilege app role**: the app connects as `protecther_app` (NOT the `postgres`
+  superuser). This role has DML only — `SELECT/INSERT/UPDATE/DELETE` on tables and
+  `USAGE/SELECT/UPDATE` on sequences, plus `ALTER DEFAULT PRIVILEGES` so new tables inherit
+  the grants. It has **no DDL/CREATE** (`CREATE ON SCHEMA public` is revoked from PUBLIC).
+- **Migrations and `reload-checklist.ts` run as `postgres`** (they need DDL/TRUNCATE), not
+  as the app role. Set `DB_USER=postgres` (and its password) in the shell for those runs.
+- **`.pgpass`** (`%APPDATA%\postgresql\pgpass.conf`) holds the postgres + app passwords for
+  CLI tools (pg_dump/psql in the .bat scripts); it is ACL-locked to the owner.
+- Rotating secrets: update `backend/.env` (+ `.pgpass` if the DB password changed), then
+  restart backend. Rotating `JWT_SECRET` invalidates all existing tokens — **all users must
+  re-login**.
+
 ## Deployment
 
 ### Production URLs
-- **Frontend**: https://audit.protecther.in
-- **API**: https://api-audit.protecther.in
+- **Frontend**: https://audit.protecther.in (local :3000)
+- **API**: https://api-audit.protecther.in (local :5000)
+
+### Staging URLs
+- **Frontend**: https://staging-audit.protecther.in (local :3001)
+- **API**: https://staging-api-audit.protecther.in (local :5001)
+- Staging runs from the **current working tree** (whatever branch is checked out) via
+  `start-staging.bat`, against a separate DB `mahsr_safety_staging`, so changes can be
+  tested through the real tunnel before merging/deploying to prod.
+- `refresh-staging.bat` rebuilds `mahsr_safety_staging` as a fresh copy of production
+  (dump prod → drop+recreate staging → restore). Rebuild the staging frontend after a
+  UI change: `cd frontend && npx vite build --mode staging --outDir dist-staging --emptyOutDir`
+  (uses `frontend/.env.staging`, which points at the staging API hostname — no secrets).
 
 ### Infrastructure
 - Hosted on Windows machine with Cloudflare Tunnel
-- Tunnel config: `C:\Users\IT\.cloudflared\config.yml`
+- Tunnel config: `C:\Users\IT\.cloudflared\config.yml` (ingress for all 4 hostnames above)
 - Tunnel name: `mahsr-safety`
 
 ### Startup/Shutdown Scripts
 ```bash
-start-protecther.bat          # Start backend, frontend, and tunnel
+start-protecther.bat          # Start prod backend (:5000), frontend (:3000), and tunnel
 stop-protecther.bat           # Stop all services
+start-staging.bat             # Start staging backend (:5001) + frontend (:3001) from working tree
+refresh-staging.bat           # Rebuild staging DB as a fresh copy of production
 ```
 
 ### Database Backup
