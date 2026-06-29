@@ -369,23 +369,45 @@ Frontend uses `VITE_API_URL` env var (defaults to `/api/v1`).
 
 ### Startup/Shutdown Scripts
 ```bash
-start-protecther.bat          # Start prod backend (:5000), frontend (:3000), and tunnel
-stop-protecther.bat           # Stop all services
+start-protecther.bat          # Manual BUILD + (re)start of backend (:5000) + frontend (:3000)
+                              #   after a deploy. Does NOT start the tunnel (it's a service).
+boot-start.bat                # Headless start of the ALREADY-BUILT app (no build); used by the
+                              #   PROTECTHER-AutoStart task at boot. Waits for Postgres, idempotent.
+stop-protecther.bat           # Stop backend/frontend node procs + the cloudflared service
 start-staging.bat             # Start staging backend (:5001) + frontend (:3001) from working tree
 refresh-staging.bat           # Rebuild staging DB as a fresh copy of production
 ```
 
 ### Database Backup
 ```bash
-backup-database.bat           # Manual backup to backups/ folder
-setup-backup-scheduler.bat    # Setup daily backup at 2:00 AM (run as admin)
-restore-database.bat          # Restore from backup
+backup-database.bat           # Backup mahsr_safety to backups/ (custom-format .dump)
+restore-database.bat <file> [target_db]   # Restore a .dump/.sql; optional throwaway target
 ```
-- Backups stored in `C:\PROJECTS\PRO-NHRCL\backups\`
-- Auto-cleanup: backups older than 7 days are deleted
+- Both scripts run as the **`postgres`** superuser (backup must be complete; restore needs
+  DDL). The password comes from `pgpass.conf` via `PGPASSFILE` (the absolute IT-profile path
+  is hardcoded so it also works when run as SYSTEM). The app role `protecther_app` is NOT used.
+- Backups stored in `C:\PROJECTS\PRO-NHRCL\backups\` as `mahsr_safety_<timestamp>.dump`.
+- Retention: routine dumps older than 7 days are auto-deleted; **manual `*_PRE_*.dump` safety
+  dumps are kept indefinitely** (the cleanup mask only matches year-prefixed routine files).
+- Restore a dump into a throwaway DB to verify it (does not touch prod):
+  `restore-database.bat mahsr_safety_<ts>.dump mahsr_safety_restoretest`
+- Daily backup runs via the `PROTECTHER-Database-Backup` scheduled task (02:00, as SYSTEM),
+  installed by `setup-autostart.ps1`.
 
 ### Auto-Start on Boot
-Run `create-startup-shortcut.vbs` to add startup shortcut to Windows Startup folder.
+`setup-autostart.ps1` (run ONCE, as Administrator) makes the stack survive an unattended
+reboot — no interactive login required:
+- **cloudflared** is installed as a Windows **service** (LocalSystem, Automatic), launched with
+  `--config C:\Users\IT\.cloudflared\config.yml`, so the tunnel is always up.
+- **`PROTECTHER-AutoStart`** scheduled task runs `boot-start.bat` **At startup** as the `IT`
+  account with **S4U logon** ("run whether logged on or not", no stored password, local
+  resources only — which is all the app needs). 30s start delay + restart-on-failure.
+- **`PROTECTHER-Database-Backup`** task (daily 02:00, SYSTEM) — see above.
+- It also removes the old login-only Startup-folder shortcuts so the app isn't double-launched.
+
+Verify after a reboot: `Get-Service cloudflared`, `Get-ScheduledTask PROTECTHER-AutoStart`,
+and `Get-Content logs\boot.log -Tail 6`. (The legacy `create-startup-shortcut.vbs` /
+`setup-backup-scheduler.bat` are superseded by `setup-autostart.ps1`.)
 
 ### Adding New Subdomains
 ```bash
