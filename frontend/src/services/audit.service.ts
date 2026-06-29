@@ -2,6 +2,7 @@ import api from './api';
 import type {
   Audit,
   AuditCategory,
+  AuditItem,
   AuditResponse,
   AuditResponseForm,
   CreateAuditForm,
@@ -95,6 +96,29 @@ export const auditService = {
       `/audits/${auditId}/responses`,
       { responses }
     );
+    return response.data;
+  },
+
+  // Ad-hoc (custom) checkpoints added by an auditor during an audit
+  addCustomItem: async (
+    auditId: number,
+    data: { sectionId: number; auditPoint: string; standardReference?: string; evidenceRequired?: string; priority?: string }
+  ): Promise<ApiResponse<AuditItem>> => {
+    const response = await api.post<ApiResponse<AuditItem>>(`/audits/${auditId}/custom-items`, data);
+    return response.data;
+  },
+
+  updateCustomItem: async (
+    auditId: number,
+    itemId: number,
+    data: { auditPoint?: string; standardReference?: string; evidenceRequired?: string; priority?: string }
+  ): Promise<ApiResponse<AuditItem>> => {
+    const response = await api.put<ApiResponse<AuditItem>>(`/audits/${auditId}/custom-items/${itemId}`, data);
+    return response.data;
+  },
+
+  deleteCustomItem: async (auditId: number, itemId: number): Promise<ApiResponse<void>> => {
+    const response = await api.delete<ApiResponse<void>>(`/audits/${auditId}/custom-items/${itemId}`);
     return response.data;
   },
 

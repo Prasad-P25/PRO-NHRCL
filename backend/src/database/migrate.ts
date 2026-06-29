@@ -128,8 +128,18 @@ CREATE TABLE IF NOT EXISTS audit_items (
     evidence_required TEXT,
     priority VARCHAR(5) DEFAULT 'P1' CHECK (priority IN ('P1', 'P2', 'P3')),
     is_active BOOLEAN DEFAULT true,
-    UNIQUE(section_id, sr_no)
+    -- Per-audit ad-hoc checkpoints added by auditors (see migration 007).
+    -- Plain integer refs (no inline FK): audit_items is created before the
+    -- audits/users tables here, and audits use soft-delete.
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    created_in_audit_id INTEGER,
+    created_by INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_items_master_srno
+    ON audit_items (section_id, sr_no) WHERE is_custom = false;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_items_custom_srno
+    ON audit_items (created_in_audit_id, section_id, sr_no) WHERE is_custom = true;
 
 -- Audits
 CREATE TABLE IF NOT EXISTS audits (

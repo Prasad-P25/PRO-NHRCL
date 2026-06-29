@@ -98,8 +98,9 @@ export interface AuditItem {
   auditPoint: string;
   standardReference?: string;
   evidenceRequired?: string;
-  priority: 'P1' | 'P2';
+  priority: 'P1' | 'P2' | 'P3';
   isActive: boolean;
+  isCustom?: boolean; // auditor-added ad-hoc checkpoint (this audit only)
 }
 
 // Audit Types

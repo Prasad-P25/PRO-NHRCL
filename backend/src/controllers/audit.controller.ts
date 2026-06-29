@@ -438,6 +438,18 @@ export class AuditController {
         [id]
       );
 
+      // Get ad-hoc (custom) checkpoints the auditor added to this audit.
+      const customItemsResult = await db.query(
+        `SELECT ai.id, ai.section_id, ai.sr_no, ai.audit_point, ai.standard_reference,
+                ai.evidence_required, ai.priority, s.category_id, u.name AS created_by_name
+         FROM audit_items ai
+         JOIN audit_sections s ON ai.section_id = s.id
+         LEFT JOIN users u ON ai.created_by = u.id
+         WHERE ai.is_custom = true AND ai.created_in_audit_id = $1
+         ORDER BY ai.section_id, ai.sr_no`,
+        [id]
+      );
+
       res.json({
         success: true,
         data: {
@@ -473,11 +485,141 @@ export class AuditController {
             name: cat.name,
             type: cat.type,
           })),
+          customItems: customItemsResult.rows.map((it) => ({
+            id: it.id,
+            sectionId: it.section_id,
+            categoryId: it.category_id,
+            srNo: it.sr_no,
+            auditPoint: it.audit_point,
+            standardReference: it.standard_reference,
+            evidenceRequired: it.evidence_required,
+            priority: it.priority,
+            isCustom: true,
+            createdByName: it.created_by_name,
+          })),
           createdAt: audit.created_at,
           completedAt: audit.completed_at,
           approvedAt: audit.approved_at,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ---- Custom (ad-hoc) checkpoints added by an auditor during an audit ----
+
+  addCustomItem = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { sectionId, auditPoint, standardReference, evidenceRequired, priority } = req.body;
+
+      const audit = await assertAuditAccess(id, req);
+      if (audit.locked_at || audit.status === 'Approved') {
+        throw new AppError('Cannot modify a locked audit', 400);
+      }
+      if (!sectionId) throw new AppError('sectionId is required', 400);
+      if (!auditPoint || !String(auditPoint).trim()) throw new AppError('Audit point text is required', 400);
+      const pr = ['P1', 'P2', 'P3'].includes(priority) ? priority : 'P2';
+
+      // The section must belong to a category selected for this audit
+      const sec = await db.query(
+        `SELECT s.id FROM audit_sections s
+         JOIN audit_category_selection acs ON acs.category_id = s.category_id
+         WHERE s.id = $1 AND acs.audit_id = $2`,
+        [sectionId, id]
+      );
+      if (sec.rows.length === 0) throw new AppError('Section is not part of this audit', 400);
+
+      // Next Sr No within this section (master items + this audit's custom items)
+      const nextRes = await db.query(
+        `SELECT COALESCE(MAX(sr_no), 0) + 1 AS n FROM audit_items
+         WHERE section_id = $1 AND (is_custom = false OR created_in_audit_id = $2)`,
+        [sectionId, id]
+      );
+      const srNo = nextRes.rows[0].n;
+
+      const ins = await db.query(
+        `INSERT INTO audit_items
+           (section_id, sr_no, audit_point, standard_reference, evidence_required, priority,
+            is_active, is_custom, created_in_audit_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, true, true, $7, $8)
+         RETURNING id, section_id, sr_no, audit_point, standard_reference, evidence_required, priority`,
+        [sectionId, srNo, String(auditPoint).trim(), standardReference || null, evidenceRequired || null, pr, id, req.user?.id || null]
+      );
+      const row = ins.rows[0];
+      res.status(201).json({
+        success: true,
+        data: {
+          id: row.id, sectionId: row.section_id, srNo: row.sr_no, auditPoint: row.audit_point,
+          standardReference: row.standard_reference, evidenceRequired: row.evidence_required,
+          priority: row.priority, isCustom: true,
+        },
+        message: 'Checkpoint added',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateCustomItem = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id, itemId } = req.params;
+      const { auditPoint, standardReference, evidenceRequired, priority } = req.body;
+
+      const audit = await assertAuditAccess(id, req);
+      if (audit.locked_at || audit.status === 'Approved') {
+        throw new AppError('Cannot modify a locked audit', 400);
+      }
+      const pr = priority && ['P1', 'P2', 'P3'].includes(priority) ? priority : null;
+
+      const upd = await db.query(
+        `UPDATE audit_items SET
+           audit_point = COALESCE($1, audit_point),
+           standard_reference = $2,
+           evidence_required = $3,
+           priority = COALESCE($4, priority)
+         WHERE id = $5 AND is_custom = true AND created_in_audit_id = $6
+         RETURNING id, section_id, sr_no, audit_point, standard_reference, evidence_required, priority`,
+        [auditPoint ? String(auditPoint).trim() : null, standardReference || null, evidenceRequired || null, pr, itemId, id]
+      );
+      if (upd.rows.length === 0) throw new AppError('Custom checkpoint not found for this audit', 404);
+      const row = upd.rows[0];
+      res.json({
+        success: true,
+        data: {
+          id: row.id, sectionId: row.section_id, srNo: row.sr_no, auditPoint: row.audit_point,
+          standardReference: row.standard_reference, evidenceRequired: row.evidence_required,
+          priority: row.priority, isCustom: true,
+        },
+        message: 'Checkpoint updated',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteCustomItem = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id, itemId } = req.params;
+      const audit = await assertAuditAccess(id, req);
+      if (audit.locked_at || audit.status === 'Approved') {
+        throw new AppError('Cannot modify a locked audit', 400);
+      }
+      await db.transaction(async (client) => {
+        const chk = await client.query(
+          `SELECT id FROM audit_items WHERE id = $1 AND is_custom = true AND created_in_audit_id = $2`,
+          [itemId, id]
+        );
+        if (chk.rows.length === 0) throw new AppError('Custom checkpoint not found for this audit', 404);
+        // Remove dependent response data, then the item itself.
+        await client.query(`DELETE FROM audit_response_history WHERE response_id IN (SELECT id FROM audit_responses WHERE audit_item_id = $1)`, [itemId]);
+        await client.query(`DELETE FROM audit_evidences WHERE response_id IN (SELECT id FROM audit_responses WHERE audit_item_id = $1)`, [itemId]);
+        await client.query(`DELETE FROM capa WHERE response_id IN (SELECT id FROM audit_responses WHERE audit_item_id = $1)`, [itemId]);
+        await client.query(`DELETE FROM audit_responses WHERE audit_item_id = $1`, [itemId]);
+        await client.query(`DELETE FROM audit_items WHERE id = $1`, [itemId]);
+      });
+      res.json({ success: true, message: 'Checkpoint removed' });
     } catch (error) {
       next(error);
     }
@@ -1177,7 +1319,7 @@ export class AuditController {
       // photos) so the Word export is a complete audit report — compliant items
       // included, not just the non-conformances.
       const allResponses = await db.query(
-        `SELECT ar.status, ar.observation, ai.sr_no, ai.audit_point,
+        `SELECT ar.status, ar.observation, ai.sr_no, ai.audit_point, ai.is_custom,
                 c.code as category_code, c.name as category_name,
                 COALESCE(
                   json_agg(
@@ -1190,7 +1332,7 @@ export class AuditController {
          JOIN audit_categories c ON s.category_id = c.id
          LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
          WHERE ar.audit_id = $1
-         GROUP BY ar.id, ar.status, ar.observation, ai.sr_no, ai.audit_point,
+         GROUP BY ar.id, ar.status, ar.observation, ai.sr_no, ai.audit_point, ai.is_custom,
                   c.code, c.name, c.display_order, s.display_order
          ORDER BY c.display_order, s.display_order, ai.sr_no`,
         [id]
@@ -1405,7 +1547,7 @@ export class AuditController {
             return new TableRow({
               children: [
                 cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })]),
-                cell([new Paragraph({ children: [new TextRun({ text: r.audit_point || '', size: 18 })] })]),
+                cell([new Paragraph({ children: [new TextRun({ text: (r.audit_point || '') + (r.is_custom ? '  [Added]' : ''), size: 18 })] })]),
                 cell([new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: meta.label, bold: true, color: meta.color, size: 18 })] })]),
                 cell([new Paragraph({ children: [new TextRun({ text: r.observation || '', size: 18 })] })]),
                 cell(evParas),
