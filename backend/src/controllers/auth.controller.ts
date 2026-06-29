@@ -257,4 +257,46 @@ export class AuthController {
       next(error);
     }
   };
+
+  // Self-service password change for the logged-in user (Profile → Change Password)
+  changePassword = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const userId = req.user!.id;
+      const { currentPassword, newPassword } = req.body;
+
+      const result = await db.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+      if (result.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+
+      const valid = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+      if (!valid) {
+        throw new AppError('Current password is incorrect', 400);
+      }
+
+      // Stamping password_changed_at invalidates tokens issued earlier, so the
+      // user must log in again with the new password.
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await db.query(
+        `UPDATE users
+         SET password_hash = $1, password_changed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [passwordHash, userId]
+      );
+
+      logger.info(`Password changed for user id ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'Password changed successfully. Please log in again with your new password.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

@@ -22,6 +22,19 @@ router.post('/logout', authenticate, authController.logout);
 
 router.post('/refresh', authLimiter, authController.refreshToken);
 
+// Change password (logged-in user changes their own password)
+router.post(
+  '/change-password',
+  authenticate,
+  [
+    body('currentPassword').notEmpty().withMessage('Current password is required'),
+    body('newPassword')
+      .isLength({ min: 6 })
+      .withMessage('New password must be at least 6 characters'),
+  ],
+  authController.changePassword
+);
+
 // Forgot password - strict rate limit
 router.post(
   '/forgot-password',
