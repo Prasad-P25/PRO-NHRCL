@@ -15,6 +15,8 @@ import {
   HelpCircle,
   Ban,
   RotateCcw,
+  Pencil,
+  Plus,
   Loader2,
   RefreshCw,
   Trash2,
@@ -113,6 +115,18 @@ export function AuditExecutionPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingNC, setIsExportingNC] = useState(false);
+
+  // Add/edit custom checkpoint dialog state
+  const [customDialog, setCustomDialog] = useState<{
+    open: boolean;
+    sectionId: number | null;
+    editingId: number | null;
+    auditPoint: string;
+    standardReference: string;
+    priority: 'P1' | 'P2' | 'P3';
+    evidenceRequired: string;
+  }>({ open: false, sectionId: null, editingId: null, auditPoint: '', standardReference: '', priority: 'P2', evidenceRequired: '' });
+  const [isSavingCustom, setIsSavingCustom] = useState(false);
 
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -417,22 +431,39 @@ export function AuditExecutionPage() {
     );
   }
 
+  // Auditor-added ad-hoc checkpoints for THIS audit, grouped by section.
+  const customItems: AuditItem[] = ((auditData as any).customItems || []) as AuditItem[];
+  const customBySection = new Map<number, AuditItem[]>();
+  customItems.forEach((ci) => {
+    const arr = customBySection.get(ci.sectionId) || [];
+    arr.push({ ...ci, isCustom: true });
+    customBySection.set(ci.sectionId, arr);
+  });
+
   // Build categories with their sections and items - filter to only selected categories
   const categories: CategoryWithSections[] = (allCategories || [])
     .filter((cat) => auditData.categories?.some((ac: { id: number }) => ac.id === cat.id))
     .map((cat) => {
+      // Merge custom items into their section so they render and count.
+      const sections = (cat.sections || []).map((sec: any) => {
+        const extra = customBySection.get(sec.id) || [];
+        return extra.length ? { ...sec, items: [...(sec.items || []), ...extra] } : sec;
+      });
+
       // Removed (RM) items are excluded from the audit: they don't count as
-      // "completed" and they shrink the effective denominator.
+      // "completed" and they shrink the effective denominator. itemCount is
+      // derived from actual items (master + custom).
+      let itemCount = 0;
       let completedCount = 0;
       let removedCount = 0;
-      cat.sections?.forEach((sec: { items?: AuditItem[] }) => {
+      sections.forEach((sec: { items?: AuditItem[] }) => {
         sec.items?.forEach((item: AuditItem) => {
+          itemCount++;
           const s = responses[item.id]?.status;
           if (s === 'RM') removedCount++;
           else if (s != null) completedCount++;
         });
       });
-      const itemCount = cat.itemCount || 0;
 
       return {
         id: cat.id,
@@ -442,7 +473,7 @@ export function AuditExecutionPage() {
         completedCount,
         removedCount,
         effectiveItemCount: Math.max(0, itemCount - removedCount),
-        sections: cat.sections || [],
+        sections,
       };
     });
 
@@ -491,6 +522,58 @@ export function AuditExecutionPage() {
       status,
       riskRating: status === 'NC' ? 'Major' : null,
     });
+  };
+
+  // ---- Add / edit / delete custom (ad-hoc) checkpoints ----
+  const openAddCustom = (sectionId: number) => {
+    setCustomDialog({ open: true, sectionId, editingId: null, auditPoint: '', standardReference: '', priority: 'P2', evidenceRequired: '' });
+  };
+  const openEditCustom = (item: AuditItem) => {
+    setCustomDialog({
+      open: true, sectionId: item.sectionId, editingId: item.id,
+      auditPoint: item.auditPoint, standardReference: item.standardReference || '',
+      priority: (item.priority as 'P1' | 'P2' | 'P3') || 'P2', evidenceRequired: item.evidenceRequired || '',
+    });
+  };
+  const saveCustomItem = async () => {
+    if (!customDialog.auditPoint.trim() || !auditId) return;
+    setIsSavingCustom(true);
+    try {
+      if (customDialog.editingId) {
+        await auditService.updateCustomItem(auditId, customDialog.editingId, {
+          auditPoint: customDialog.auditPoint.trim(),
+          standardReference: customDialog.standardReference || undefined,
+          evidenceRequired: customDialog.evidenceRequired || undefined,
+          priority: customDialog.priority,
+        });
+      } else if (customDialog.sectionId) {
+        await auditService.addCustomItem(auditId, {
+          sectionId: customDialog.sectionId,
+          auditPoint: customDialog.auditPoint.trim(),
+          standardReference: customDialog.standardReference || undefined,
+          evidenceRequired: customDialog.evidenceRequired || undefined,
+          priority: customDialog.priority,
+        });
+      }
+      setCustomDialog((d) => ({ ...d, open: false }));
+      await queryClient.invalidateQueries({ queryKey: ['audit', auditId] });
+      refetchAudit();
+    } catch (e) {
+      alert('Failed to save checkpoint. Please try again.');
+    } finally {
+      setIsSavingCustom(false);
+    }
+  };
+  const handleDeleteCustom = async (item: AuditItem) => {
+    if (!auditId) return;
+    if (!confirm(`Delete added checkpoint "${item.auditPoint}"?\nThis also removes any response recorded on it.`)) return;
+    try {
+      await auditService.deleteCustomItem(auditId, item.id);
+      await queryClient.invalidateQueries({ queryKey: ['audit', auditId] });
+      refetchAudit();
+    } catch (e) {
+      alert('Failed to delete checkpoint. Please try again.');
+    }
   };
 
   const handleSave = async () => {
@@ -591,7 +674,7 @@ export function AuditExecutionPage() {
           const resp = getResponse(item.id);
           return {
             srNo: item.srNo,
-            auditPoint: item.auditPoint,
+            auditPoint: item.isCustom ? `${item.auditPoint} [Added]` : item.auditPoint,
             status: resp.status || '-',
             observation: resp.observation,
             riskRating: resp.riskRating || undefined,
@@ -756,6 +839,8 @@ export function AuditExecutionPage() {
   const effectiveTotal = Math.max(0, totalItems - removedCount);
   const completedCount = Object.values(responses).filter((r) => r.status !== null && r.status !== 'RM').length;
   const progress = effectiveTotal > 0 ? (completedCount / effectiveTotal) * 100 : 0;
+  // Auditors can add/edit/remove ad-hoc checkpoints only while the audit is open.
+  const canEditItems = auditData.status !== 'Approved' && auditData.status !== 'Pending Review';
 
   const StatusButton = ({
     itemId,
@@ -1172,6 +1257,11 @@ export function AuditExecutionPage() {
                                       <div className="flex-1">
                                         <p className={cn('text-sm', response.status === 'RM' && 'line-through text-muted-foreground')}>
                                           {item.auditPoint}
+                                          {item.isCustom && (
+                                            <span className="ml-2 align-middle rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium not-italic no-underline text-blue-400">
+                                              Added
+                                            </span>
+                                          )}
                                           {response.status === 'RM' && (
                                             <span className="ml-2 align-middle rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium not-italic no-underline text-muted-foreground">
                                               Removed — excluded from reports
@@ -1251,6 +1341,24 @@ export function AuditExecutionPage() {
                                       </div>
                                     )}
 
+                                    {item.isCustom && canEditItems && (
+                                      <>
+                                        <Button
+                                          variant="ghost" size="icon"
+                                          title="Edit added checkpoint"
+                                          onClick={() => openEditCustom(item)}
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost" size="icon"
+                                          title="Delete added checkpoint"
+                                          onClick={() => handleDeleteCustom(item)}
+                                        >
+                                          <Trash2 className="h-4 w-4 text-destructive" />
+                                        </Button>
+                                      </>
+                                    )}
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1262,6 +1370,17 @@ export function AuditExecutionPage() {
                                 </div>
                               );
                             })}
+                            {canEditItems && (
+                              <div className="px-4 py-3">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openAddCustom(section.id)}
+                                >
+                                  <Plus className="h-4 w-4 mr-1" /> Add point
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1284,6 +1403,69 @@ export function AuditExecutionPage() {
           readOnly={auditData.status === 'Approved'}
         />
       </div>
+
+      {/* Add / Edit custom checkpoint dialog */}
+      <Dialog open={customDialog.open} onOpenChange={(o) => setCustomDialog((d) => ({ ...d, open: o }))}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{customDialog.editingId ? 'Edit added checkpoint' : 'Add checkpoint'}</DialogTitle>
+            <DialogDescription>
+              This point applies to <strong>this audit only</strong> and is marked “Added”. It does not change the standard checklist.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Audit Point <span className="text-destructive">*</span></label>
+              <Textarea
+                value={customDialog.auditPoint}
+                onChange={(e) => setCustomDialog((d) => ({ ...d, auditPoint: e.target.value }))}
+                placeholder="Describe the checkpoint to audit…"
+                rows={2}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Standard / Reference</label>
+              <Input
+                value={customDialog.standardReference}
+                onChange={(e) => setCustomDialog((d) => ({ ...d, standardReference: e.target.value }))}
+                placeholder="e.g. IS 3764 / Site SOP (optional)"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Priority</label>
+                <Select
+                  value={customDialog.priority}
+                  onValueChange={(v) => setCustomDialog((d) => ({ ...d, priority: v as 'P1' | 'P2' | 'P3' }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="P1">P1</SelectItem>
+                    <SelectItem value="P2">P2</SelectItem>
+                    <SelectItem value="P3">P3</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Evidence Required</label>
+                <Input
+                  value={customDialog.evidenceRequired}
+                  onChange={(e) => setCustomDialog((d) => ({ ...d, evidenceRequired: e.target.value }))}
+                  placeholder="optional"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCustomDialog((d) => ({ ...d, open: false }))} disabled={isSavingCustom}>
+              Cancel
+            </Button>
+            <Button onClick={saveCustomItem} disabled={isSavingCustom || !customDialog.auditPoint.trim()}>
+              {isSavingCustom ? 'Saving…' : customDialog.editingId ? 'Save changes' : 'Add point'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail Dialog */}
       <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>

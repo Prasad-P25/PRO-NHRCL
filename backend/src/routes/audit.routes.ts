@@ -87,6 +87,11 @@ router.get('/:id/responses', auditController.getAuditResponses);
 
 router.post('/:id/responses', authorize(...auditWriteRoles), auditController.saveAuditResponses);
 
+// Ad-hoc (custom) checkpoints added by an auditor during an audit
+router.post('/:id/custom-items', authorize(...auditWriteRoles), auditController.addCustomItem);
+router.put('/:id/custom-items/:itemId', authorize(...auditWriteRoles), auditController.updateCustomItem);
+router.delete('/:id/custom-items/:itemId', authorize(...auditWriteRoles), auditController.deleteCustomItem);
+
 // Audit history (change log)
 router.get('/:id/history', auditController.getAuditHistory);
 
