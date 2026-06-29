@@ -11,9 +11,11 @@ for /f "tokens=2 delims=," %%P in ('wmic process where "name='node.exe' and comm
     taskkill /F /PID %%P 2>nul
 )
 
-:: Kill Cloudflared
+:: Stop the Cloudflare tunnel. It runs as a service now, so stop the SERVICE
+:: (a plain taskkill would just be respawned by the service manager).
+:: Needs admin; falls back to taskkill if it isn't a service / not elevated.
 echo Stopping Cloudflare Tunnel...
-taskkill /F /IM cloudflared.exe 2>nul
+net stop cloudflared 2>nul || taskkill /F /IM cloudflared.exe 2>nul
 
 echo.
 echo ========================================

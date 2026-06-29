@@ -38,15 +38,16 @@ echo Starting Frontend Server...
 start "PROTECTHER Frontend" cmd /k "npx serve dist -l 3000 -s"
 timeout /t 5 /nobreak >nul
 
-:: Start Cloudflare Tunnel
-echo Starting Cloudflare Tunnel...
-start "PROTECTHER Tunnel" cmd /k "C:\Users\IT\Downloads\cloudflared.exe tunnel run mahsr-safety"
+:: NOTE: the Cloudflare tunnel runs as the "cloudflared" Windows SERVICE
+:: (installed by setup-autostart.ps1) and is always up - do NOT start it here,
+:: or you'll run two tunnel instances. Restart it with: Restart-Service cloudflared
 
 echo.
 echo ========================================
-echo   All services started!
+echo   Backend + Frontend (re)started!
 echo   Frontend: https://audit.protecther.in
 echo   API: https://api-audit.protecther.in
+echo   Tunnel: cloudflared service (already running)
 echo ========================================
 echo.
 echo You can close this window.
