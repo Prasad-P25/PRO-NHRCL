@@ -72,12 +72,12 @@ Frontend tests in `frontend/src/**/*.{test,spec}.{ts,tsx}`, backend tests in `ba
 - `user_project_assignments` - Many-to-many user↔project with is_default flag
 
 **Audit System:**
-- `audit_categories` - 18 pre-seeded categories (Statutory, SHE, HIRA, Permits, Scaffolding, etc.)
+- `audit_categories` - 28 categories (MAHSR V5 checklist: Statutory, SHE, HIRA, Permits, Scaffolding … Rigging, Casting, PT Strand, RMC, Reinforcement, Shuttering). Loaded from the MAHSR workbook via `reload-checklist.ts`, NOT seeded.
 - `audit_sections` - Sub-sections within categories (category_id FK)
-- `audit_items` - 600+ checkpoint items (section_id FK, audit_point, priority P1/P2)
+- `audit_items` - ~871 checkpoint items (section_id FK, audit_point, priority P1/P2/P3). Per-audit ad-hoc points added by auditors are stored here with `is_custom=true` + `created_in_audit_id` (scoped to one audit; partial unique indexes let two audits reuse the same sr_no in a section).
 - `audits` - Main audit record (package_id, auditor_id, status, compliance_percentage, locked_at)
 - `audit_category_selection` - Many-to-many audit↔categories
-- `audit_responses` - Item responses: status (C/NC/NA), observation, risk_rating, capa_required
+- `audit_responses` - Item responses: status C/NC/NA/NV/**RM**, observation, risk_rating, capa_required. `RM` (Removed) excludes an item from that audit's reports and compliance (reversible).
 - `audit_response_history` - Change tracking with old/new values, changed_by, ip_address
 - `audit_evidences` - File uploads linked to responses
 - `audit_comments` - Discussion threads on audits
@@ -226,8 +226,9 @@ Draft → In Progress → Pending Review → Approved (locked)
 
 ### Compliance Calculation
 ```
-Compliance % = (Compliant Items / (Total Items - NA Items)) × 100
+Compliance % = Compliant / (Compliant + Non-Compliant) × 100
 ```
+NA, NV, and RM (Removed) items are excluded from the denominator. RM items are also hidden from Word/PDF exports.
 
 ### CAPA Workflow
 ```
@@ -365,7 +366,8 @@ cloudflared tunnel route dns mahsr-safety <subdomain>.protecther.in
 - Protected routes require JWT in `Authorization: Bearer <token>` header
 - Multi-project: Frontend sends `X-Project-Id` header with requests
 - File uploads stored in `backend/uploads/` (images, PDFs, docs up to 10MB)
-- Audit categories are seeded (18 categories covering statutory, technical, safety areas)
+- Audit checklist (28 categories / ~871 items) is loaded from the MAHSR V5 workbook via `npx ts-node src/database/reload-checklist.ts` (clean reload). `seed.ts` does NOT seed the checklist.
+- Auditors can add ad-hoc checkpoints during an audit (`POST/PUT/DELETE /audits/:id/custom-items`, shown as "Added") and exclude items with the RM status — both scoped to a single audit
 - Path aliases: Frontend uses `@/*` for `src/*`, Backend uses `@/*` for `src/*`
 - Passwords hashed with bcryptjs (salt: 12)
 - All delete operations are soft deletes (status='Deleted' or is_active=false)
