@@ -391,8 +391,13 @@ restore-database.bat <file> [target_db]   # Restore a .dump/.sql; optional throw
   dumps are kept indefinitely** (the cleanup mask only matches year-prefixed routine files).
 - Restore a dump into a throwaway DB to verify it (does not touch prod):
   `restore-database.bat mahsr_safety_<ts>.dump mahsr_safety_restoretest`
-- Daily backup runs via the `PROTECTHER-Database-Backup` scheduled task (02:00, as SYSTEM),
-  installed by `setup-autostart.ps1`.
+- **Off-site copy:** each dump is also copied to `\\PLLP_NAS\Protecther\IT\PROTECTHER-Audit-Backups`
+  (30-day retention there) so a local disk loss doesn't take the backups with it.
+- Daily backup runs via the `PROTECTHER-Database-Backup` scheduled task (02:00), installed by
+  `setup-autostart.ps1`. GOTCHA: the NAS copy only works when the task runs as the **IT user**
+  (SYSTEM reaches the network as the machine account, which the NAS share rejects). Run
+  **`set-backup-account.ps1`** as admin (prompts for the IT Windows password once) to switch the
+  task to the IT account; it then test-runs and confirms a file lands on the NAS.
 
 ### Auto-Start on Boot
 `setup-autostart.ps1` (run ONCE, as Administrator) makes the stack survive an unattended

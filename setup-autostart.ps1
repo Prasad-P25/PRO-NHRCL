@@ -119,14 +119,20 @@ Write-Host "  -> $($results['PROTECTHER-AutoStart'])"
 # ---------------------------------------------------------------------------
 Write-Host "`n[3/4] PROTECTHER-Database-Backup task..." -ForegroundColor Cyan
 try {
-  Unregister-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Confirm:$false -ErrorAction SilentlyContinue
-  $bAction  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\backup-database.bat`"" -WorkingDirectory $ROOT
-  $bTrigger = New-ScheduledTaskTrigger -Daily -At '02:00'
-  $bPrinc   = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-  $bSet     = New-ScheduledTaskSettingsSet -StartWhenAvailable
-  Register-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Action $bAction -Trigger $bTrigger `
-    -Principal $bPrinc -Settings $bSet -Description 'Daily pg_dump of mahsr_safety (keeps 7 days)' | Out-Null
-  $results['PROTECTHER-Database-Backup'] = "OK (daily 02:00 as SYSTEM)"
+  # Don't clobber an existing task - it may have been set to run as the IT user
+  # (via set-backup-account.ps1) so its NAS copy works. SYSTEM can't write to the NAS.
+  $existing = Get-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -ErrorAction SilentlyContinue
+  if ($existing) {
+    $results['PROTECTHER-Database-Backup'] = "left as-is (runs as $($existing.Principal.UserId)); use set-backup-account.ps1 to (re)enable NAS copy"
+  } else {
+    $bAction  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\backup-database.bat`"" -WorkingDirectory $ROOT
+    $bTrigger = New-ScheduledTaskTrigger -Daily -At '02:00'
+    $bPrinc   = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $bSet     = New-ScheduledTaskSettingsSet -StartWhenAvailable
+    Register-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Action $bAction -Trigger $bTrigger `
+      -Principal $bPrinc -Settings $bSet -Description 'Daily pg_dump of mahsr_safety (keeps 7 days)' | Out-Null
+    $results['PROTECTHER-Database-Backup'] = "OK (daily 02:00 as SYSTEM - run set-backup-account.ps1 to enable the NAS copy)"
+  }
 } catch { $results['PROTECTHER-Database-Backup'] = "FAILED: $($_.Exception.Message)" }
 Write-Host "  -> $($results['PROTECTHER-Database-Backup'])"
 
