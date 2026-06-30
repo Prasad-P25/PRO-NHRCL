@@ -2,101 +2,138 @@
   setup-autostart.ps1  -  RUN ONCE, AS ADMINISTRATOR.
 
   Makes PROTECTHER survive an unattended reboot (e.g. power cut) with no one logged in:
-
     1. cloudflared -> Windows service (LocalSystem), so the tunnel is always up.
-    2. "PROTECTHER-AutoStart" scheduled task -> runs boot-start.bat at system startup
-       as the IT account using S4U logon (runs whether logged on or not, NO stored
-       password, local resources only - which is all the app needs).
-    3. "PROTECTHER-Database-Backup" scheduled task -> daily 02:00 backup as SYSTEM.
-    4. Removes the old Startup-folder shortcuts (login-only) so the app isn't
-       double-launched when someone logs in.
+       (If this step can't complete, boot-start.bat starts the tunnel as a fallback.)
+    2. "PROTECTHER-AutoStart" task -> runs boot-start.bat at startup as the IT account
+       via S4U logon (runs whether logged on or not, NO stored password).
+    3. "PROTECTHER-Database-Backup" task -> daily 02:00 backup as SYSTEM.
+    4. Removes the old login-only Startup-folder shortcuts.
 
-  Re-runnable: it removes/recreates the tasks and only installs the service if missing.
+  Re-runnable. Logs everything to logs\setup-autostart.log and prints a verification
+  summary at the end. One failing step does NOT abort the others.
 
-  How to run:
-    Right-click Windows PowerShell -> "Run as administrator", then:
+  HOW TO RUN (the window title MUST say "Administrator"):
+    Start menu -> type "PowerShell" -> right-click "Run as administrator" -> then:
       powershell -ExecutionPolicy Bypass -File C:\PROJECTS\PRO-NHRCL\setup-autostart.ps1
 #>
 
-$ErrorActionPreference = 'Stop'
 $ROOT     = 'C:\PROJECTS\PRO-NHRCL'
 $CF       = 'C:\Users\IT\Downloads\cloudflared.exe'
 $CF_CONF  = 'C:\Users\IT\.cloudflared\config.yml'
 $APP_USER = "$env:COMPUTERNAME\IT"
 
-function Assert-Admin {
-  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-  if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
-        [Security.Principal.WindowsBuiltinRole]::Administrator)) {
-    throw "Not elevated. Re-run this in an Administrator PowerShell."
-  }
+if (-not (Test-Path "$ROOT\logs")) { New-Item -ItemType Directory "$ROOT\logs" | Out-Null }
+try { Start-Transcript -Path "$ROOT\logs\setup-autostart.log" -Append | Out-Null } catch {}
+
+# --- Elevation check (loud, no stack trace) ---
+$id = [Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+      [Security.Principal.WindowsBuiltinRole]::Administrator)) {
+  Write-Host ""
+  Write-Host "  ##########################################################" -ForegroundColor Red
+  Write-Host "  #  NOT RUNNING AS ADMINISTRATOR - nothing was changed.   #" -ForegroundColor Red
+  Write-Host "  #  Close this window. Open PowerShell via right-click ->  #" -ForegroundColor Red
+  Write-Host "  #  'Run as administrator' (title must say Administrator), #" -ForegroundColor Red
+  Write-Host "  #  then re-run the same command.                          #" -ForegroundColor Red
+  Write-Host "  ##########################################################" -ForegroundColor Red
+  Write-Host ""
+  try { Stop-Transcript | Out-Null } catch {}
+  exit 1
 }
 
-Assert-Admin
-Write-Host "== PROTECTHER auto-start setup ==" -ForegroundColor Cyan
+Write-Host "== PROTECTHER auto-start setup (elevated OK) ==" -ForegroundColor Cyan
 Write-Host "App account for boot task: $APP_USER"
+$results = [ordered]@{}
 
 # ---------------------------------------------------------------------------
 # 1) cloudflared as a Windows service
 # ---------------------------------------------------------------------------
 Write-Host "`n[1/4] cloudflared service..." -ForegroundColor Cyan
-$svc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
-if (-not $svc) { $svc = Get-Service -Name 'Cloudflared' -ErrorAction SilentlyContinue }
-if ($svc) {
-  Write-Host "  service '$($svc.Name)' already exists - leaving install as-is."
-} else {
-  # Stop any manually-started tunnel first so we don't run two instances.
-  Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Write-Host "  installing service (config: $CF_CONF)..."
-  & $CF --config $CF_CONF service install
-  if ($LASTEXITCODE -ne 0) { throw "cloudflared service install failed (exit $LASTEXITCODE)" }
+try {
   $svc = Get-Service -Name 'cloudflared','Cloudflared' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($svc) {
+    Write-Host "  service '$($svc.Name)' already exists."
+  } else {
+    Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    Write-Host "  installing service (config: $CF_CONF)..."
+    $out = & $CF --config $CF_CONF service install 2>&1
+    $out | ForEach-Object { Write-Host "    $_" }
+    if ($LASTEXITCODE -ne 0) { throw "cloudflared service install exit $LASTEXITCODE" }
+    Start-Sleep -Seconds 2
+    $svc = Get-Service -Name 'cloudflared','Cloudflared' -ErrorAction SilentlyContinue | Select-Object -First 1
+  }
+  if ($svc) {
+    Set-Service -Name $svc.Name -StartupType Automatic
+    if ((Get-Service $svc.Name).Status -ne 'Running') { Start-Service -Name $svc.Name }
+    $results['cloudflared service'] = "OK ($($svc.Name): $((Get-Service $svc.Name).Status))"
+  } else { $results['cloudflared service'] = "FAILED (service not found after install)" }
+} catch {
+  $results['cloudflared service'] = "FAILED: $($_.Exception.Message) - boot-start.bat will run the tunnel as a fallback"
 }
-if ($svc) {
-  Set-Service -Name $svc.Name -StartupType Automatic
-  if ($svc.Status -ne 'Running') { Start-Service -Name $svc.Name }
-  Write-Host "  service '$($svc.Name)': $((Get-Service $svc.Name).Status), StartType Automatic" -ForegroundColor Green
-}
+Write-Host "  -> $($results['cloudflared service'])"
 
 # ---------------------------------------------------------------------------
 # 2) AtStartup task -> boot-start.bat  (S4U: no password, no login needed)
 # ---------------------------------------------------------------------------
 Write-Host "`n[2/4] PROTECTHER-AutoStart task..." -ForegroundColor Cyan
-Unregister-ScheduledTask -TaskName 'PROTECTHER-AutoStart' -Confirm:$false -ErrorAction SilentlyContinue
-$action  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\boot-start.bat`"" -WorkingDirectory $ROOT
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$trigger.Delay = 'PT30S'   # let services settle after boot
-$princ   = New-ScheduledTaskPrincipal -UserId $APP_USER -LogonType S4U -RunLevel Limited
-$set     = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-              -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName 'PROTECTHER-AutoStart' -Action $action -Trigger $trigger `
-  -Principal $princ -Settings $set -Description 'Start PROTECTHER backend+frontend at boot (tunnel = cloudflared service)' | Out-Null
-Write-Host "  registered (runs as $APP_USER at startup, whether logged on or not)." -ForegroundColor Green
+try {
+  Unregister-ScheduledTask -TaskName 'PROTECTHER-AutoStart' -Confirm:$false -ErrorAction SilentlyContinue
+  $action  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\boot-start.bat`"" -WorkingDirectory $ROOT
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $trigger.Delay = 'PT30S'
+  $princ   = New-ScheduledTaskPrincipal -UserId $APP_USER -LogonType S4U -RunLevel Limited
+  $set     = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+  Register-ScheduledTask -TaskName 'PROTECTHER-AutoStart' -Action $action -Trigger $trigger `
+    -Principal $princ -Settings $set -Description 'Start PROTECTHER backend+frontend at boot' | Out-Null
+  $results['PROTECTHER-AutoStart'] = "OK (runs as $APP_USER at startup, S4U)"
+} catch { $results['PROTECTHER-AutoStart'] = "FAILED: $($_.Exception.Message)" }
+Write-Host "  -> $($results['PROTECTHER-AutoStart'])"
 
 # ---------------------------------------------------------------------------
 # 3) Daily backup task -> backup-database.bat  (as SYSTEM, 02:00)
 # ---------------------------------------------------------------------------
 Write-Host "`n[3/4] PROTECTHER-Database-Backup task..." -ForegroundColor Cyan
-Unregister-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Confirm:$false -ErrorAction SilentlyContinue
-$bAction  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\backup-database.bat`"" -WorkingDirectory $ROOT
-$bTrigger = New-ScheduledTaskTrigger -Daily -At '02:00'
-$bPrinc   = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$bSet     = New-ScheduledTaskSettingsSet -StartWhenAvailable   # run after wake if PC was off at 02:00
-Register-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Action $bAction -Trigger $bTrigger `
-  -Principal $bPrinc -Settings $bSet -Description 'Daily pg_dump of mahsr_safety (keeps 7 days)' | Out-Null
-Write-Host "  registered (daily 02:00 as SYSTEM)." -ForegroundColor Green
+try {
+  Unregister-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Confirm:$false -ErrorAction SilentlyContinue
+  $bAction  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ROOT\backup-database.bat`"" -WorkingDirectory $ROOT
+  $bTrigger = New-ScheduledTaskTrigger -Daily -At '02:00'
+  $bPrinc   = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  $bSet     = New-ScheduledTaskSettingsSet -StartWhenAvailable
+  Register-ScheduledTask -TaskName 'PROTECTHER-Database-Backup' -Action $bAction -Trigger $bTrigger `
+    -Principal $bPrinc -Settings $bSet -Description 'Daily pg_dump of mahsr_safety (keeps 7 days)' | Out-Null
+  $results['PROTECTHER-Database-Backup'] = "OK (daily 02:00 as SYSTEM)"
+} catch { $results['PROTECTHER-Database-Backup'] = "FAILED: $($_.Exception.Message)" }
+Write-Host "  -> $($results['PROTECTHER-Database-Backup'])"
 
 # ---------------------------------------------------------------------------
-# 4) Remove old login-only Startup shortcuts (boot task replaces them)
+# 4) Remove old login-only Startup shortcuts
 # ---------------------------------------------------------------------------
 Write-Host "`n[4/4] Removing old Startup-folder shortcuts..." -ForegroundColor Cyan
-$startup = [Environment]::GetFolderPath('Startup')
-foreach ($n in 'PROTECTHER Audit.lnk','PROTECTHER-Startup.lnk') {
-  $p = Join-Path $startup $n
-  if (Test-Path $p) { Remove-Item $p -Force; Write-Host "  removed $n" } else { Write-Host "  (absent) $n" }
-}
+try {
+  $startup = [Environment]::GetFolderPath('Startup')
+  $removed = @()
+  foreach ($n in 'PROTECTHER Audit.lnk','PROTECTHER-Startup.lnk') {
+    $p = Join-Path $startup $n
+    if (Test-Path $p) { Remove-Item $p -Force; $removed += $n }
+  }
+  $results['Old shortcuts'] = if ($removed) { "removed: $($removed -join ', ')" } else { "none present" }
+} catch { $results['Old shortcuts'] = "FAILED: $($_.Exception.Message)" }
+Write-Host "  -> $($results['Old shortcuts'])"
 
-Write-Host "`n== Done. Reboot to verify the full stack comes up on its own. ==" -ForegroundColor Green
-Write-Host "Quick checks after reboot:"
-Write-Host "  Get-Service cloudflared ; Get-ScheduledTask PROTECTHER-AutoStart,PROTECTHER-Database-Backup"
-Write-Host "  Get-Content $ROOT\logs\boot.log -Tail 6"
+# ---------------------------------------------------------------------------
+# Verification summary
+# ---------------------------------------------------------------------------
+Write-Host "`n================ VERIFICATION ================" -ForegroundColor Cyan
+foreach ($k in $results.Keys) {
+  $v = $results[$k]
+  $color = if ($v -like 'FAILED*') { 'Red' } else { 'Green' }
+  Write-Host ("  {0,-28} {1}" -f $k, $v) -ForegroundColor $color
+}
+Write-Host "`nLive state:" -ForegroundColor Cyan
+Get-Service -Name 'cloudflared','Cloudflared' -ErrorAction SilentlyContinue | Format-Table Name,Status,StartType -AutoSize
+Get-ScheduledTask -TaskName 'PROTECTHER-AutoStart','PROTECTHER-Database-Backup' -ErrorAction SilentlyContinue |
+  Select-Object TaskName, State, @{n='RunAs';e={$_.Principal.UserId}} | Format-Table -AutoSize
+Write-Host "Done. A reboot is the real test. Log: $ROOT\logs\setup-autostart.log" -ForegroundColor Green
+try { Stop-Transcript | Out-Null } catch {}

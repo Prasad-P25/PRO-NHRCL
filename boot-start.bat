@@ -51,5 +51,22 @@ if errorlevel 1 (
     echo [%DATE% %TIME%] frontend already running on :3000, skipping >> "%LOG%"
 )
 
+REM --- Cloudflare tunnel FALLBACK ---
+REM Preferred: the "cloudflared" Windows service (installed by setup-autostart.ps1)
+REM runs the tunnel. But if that service isn't running (not installed, or failed),
+REM start the tunnel here so the site is still reachable after an unattended reboot.
+sc query cloudflared 2>nul | findstr /i "RUNNING" >nul 2>&1
+if not errorlevel 1 (
+    echo [%DATE% %TIME%] cloudflared service running, not starting tunnel here >> "%LOG%"
+) else (
+    tasklist /fi "imagename eq cloudflared.exe" 2>nul | findstr /i "cloudflared.exe" >nul 2>&1
+    if not errorlevel 1 (
+        echo [%DATE% %TIME%] cloudflared.exe already running, skipping >> "%LOG%"
+    ) else (
+        echo [%DATE% %TIME%] no cloudflared service/process - starting tunnel as fallback >> "%LOG%"
+        start "PROTECTHER Tunnel" /min cmd /c "C:\Users\IT\Downloads\cloudflared.exe tunnel run mahsr-safety >> ""%ROOT%\logs\boot-tunnel.log"" 2>&1"
+    )
+)
+
 echo [%DATE% %TIME%] boot-start done >> "%LOG%"
 endlocal
