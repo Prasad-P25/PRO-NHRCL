@@ -59,6 +59,25 @@ REM which are kept indefinitely.
 echo Cleaning up routine backups older than 7 days...
 forfiles /p "%BACKUP_DIR%" /m "%DB_NAME%_2*.dump" /d -7 /c "cmd /c del @path" 2>nul
 
+REM --- Off-machine copy to NAS (protects against local disk loss / theft / ransomware) ---
+REM NOTE: the scheduled task runs as SYSTEM, which reaches the network as the MACHINE
+REM account. If this copy fails with access-denied, the share doesn't grant the machine
+REM account write - switch the PROTECTHER-Database-Backup task to run as the IT user.
+set NAS_DIR=\\PLLP_NAS\Protecther\IT\PROTECTHER-Audit-Backups
+echo Copying backup off-machine to NAS: %NAS_DIR%
+if exist "%NAS_DIR%\" (
+    copy /Y "%BACKUP_FILE%" "%NAS_DIR%\" >nul
+    if errorlevel 1 (
+        echo [WARN] NAS copy FAILED - backup exists LOCALLY ONLY. Check the task account's NAS access.
+    ) else (
+        echo [SUCCESS] Copied to NAS.
+        echo Cleaning up NAS routine backups older than 30 days...
+        forfiles /p "%NAS_DIR%" /m "%DB_NAME%_2*.dump" /d -30 /c "cmd /c del @path" 2>nul
+    )
+) else (
+    echo [WARN] NAS path not reachable: %NAS_DIR% - backup exists LOCALLY ONLY.
+)
+
 echo ================================================
 echo Backup completed.
 echo ================================================
