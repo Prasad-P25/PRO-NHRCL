@@ -338,9 +338,9 @@ export function CAPAListPage() {
                 className="pl-10"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:w-auto">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-full sm:w-[150px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -352,7 +352,7 @@ export function CAPAListPage() {
                 </SelectContent>
               </Select>
               <Select value={packageFilter} onValueChange={setPackageFilter}>
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-full sm:w-[150px]">
                   <SelectValue placeholder="Package" />
                 </SelectTrigger>
                 <SelectContent>

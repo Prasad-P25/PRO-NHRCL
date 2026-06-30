@@ -142,7 +142,7 @@ export function Header() {
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 p-0" align="end">
+            <PopoverContent className="w-[95vw] max-w-sm sm:w-80 p-0" align="end">
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <h4 className="font-semibold">Notifications</h4>
                 {unreadCount > 0 && (
