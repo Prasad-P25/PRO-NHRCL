@@ -414,7 +414,7 @@ export function ProjectSettingsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="general" className="space-y-4">
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-3 sm:inline-flex sm:w-auto">
           <TabsTrigger value="general" className="gap-2">
             <Settings className="h-4 w-4" />
             General
@@ -559,7 +559,7 @@ export function ProjectSettingsPage() {
         <TabsContent value="packages">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Project Packages</CardTitle>
                   <CardDescription>
@@ -642,15 +642,15 @@ export function ProjectSettingsPage() {
         <TabsContent value="users">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Project Users</CardTitle>
                   <CardDescription>
                     Manage who has access to this project
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="relative w-64">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 w-full sm:w-auto">
+                  <div className="relative w-full sm:w-64">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search users..."

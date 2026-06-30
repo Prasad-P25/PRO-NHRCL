@@ -186,17 +186,17 @@ export function DashboardPage() {
       {currentProject && (
         <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-background border-primary/20">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Building2 className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-xl font-semibold">{currentProject.name}</h2>
                     <Badge variant="outline" className="text-xs">{currentProject.code}</Badge>
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
                     {currentProject.location && (
                       <span className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
@@ -218,7 +218,7 @@ export function DashboardPage() {
                   </div>
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <Button variant="outline" size="sm" className="self-start sm:self-auto shrink-0" onClick={() => refetch()}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>

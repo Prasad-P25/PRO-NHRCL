@@ -396,11 +396,11 @@ export function KPIEntryPage() {
           <CardDescription>Choose a package and reporting period</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4">
             <div className="space-y-2">
               <Label>Package</Label>
               <Select value={selectedPackage} onValueChange={setSelectedPackage}>
-                <SelectTrigger className="w-[250px]">
+                <SelectTrigger className="w-full sm:w-[250px]">
                   <SelectValue placeholder="Select package" />
                 </SelectTrigger>
                 <SelectContent>
@@ -418,7 +418,7 @@ export function KPIEntryPage() {
                 value={selectedMonth.toString()}
                 onValueChange={(v) => setSelectedMonth(parseInt(v))}
               >
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-full sm:w-[150px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -436,7 +436,7 @@ export function KPIEntryPage() {
                 value={selectedYear.toString()}
                 onValueChange={(v) => setSelectedYear(parseInt(v))}
               >
-                <SelectTrigger className="w-[120px]">
+                <SelectTrigger className="w-full sm:w-[120px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
