@@ -140,6 +140,8 @@ export function AuditExecutionPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSaveEnabled] = useState(true); // Can be made configurable later
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  // Which item's inline quick-camera is currently uploading (for the per-row spinner).
+  const [capturingItemId, setCapturingItemId] = useState<number | null>(null);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
@@ -148,10 +150,17 @@ export function AuditExecutionPage() {
   // across devices than a custom getUserMedia + canvas capture, which produced
   // black frames on some phones.
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Inline per-row quick camera (next to the status buttons). captureTargetRef holds
+  // the item id being photographed so the shared hidden input's onChange knows where
+  // to attach the evidence.
+  const inlineCameraInputRef = useRef<HTMLInputElement>(null);
+  const captureTargetRef = useRef<number | null>(null);
 
   // Approve/Reject state
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  // Guard against an accidental one-tap submit (locks the audit for editing).
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   // Evidence preview state
   const [previewEvidence, setPreviewEvidence] = useState<Evidence | null>(null);
@@ -794,6 +803,21 @@ export function AuditExecutionPage() {
   // (Plain assignment, not a hook — safe to run after the early return above.)
   handleFileUploadRef.current = handleFileUpload;
 
+  // Quick inline capture: open the camera for THIS item and attach the photo without
+  // opening the Details dialog. Evidence is tied to a saved response, so a status is
+  // required first. On desktop the OS file picker opens instead of a live camera.
+  const startInlineCapture = (item: AuditItem) => {
+    if (!getResponse(item.id).status) {
+      toast({
+        title: 'Select a status first',
+        description: 'Mark this point C / NC / NA / NV, then capture the photo.',
+      });
+      return;
+    }
+    captureTargetRef.current = item.id;
+    inlineCameraInputRef.current?.click();
+  };
+
   // Build a URL for an evidence file. The ?e= param cache-busts stale Cloudflare
   // edge responses that carried the old same-origin CORP header (which blocked
   // the cross-subdomain image from loading in the browser).
@@ -863,9 +887,9 @@ export function AuditExecutionPage() {
       <button
         onClick={() => handleStatusChange(itemId, status)}
         className={cn(
-          // Mobile: larger touch targets (min 44x44px), Desktop: compact
+          // Comfortable tap targets on phones; show the letter label on every size.
           'flex items-center justify-center gap-1 rounded-md border transition-colors font-medium',
-          'h-10 w-10 sm:h-8 sm:min-w-[44px] sm:w-auto sm:px-2', // Size
+          'h-10 w-full min-w-[44px] px-2.5 sm:h-8 sm:w-auto sm:px-2', // Phones: fill the grid cell
           'text-sm sm:text-xs', // Font size
           'active:scale-95', // Touch feedback
           isActive ? activeClass : 'hover:bg-muted text-muted-foreground'
@@ -873,7 +897,7 @@ export function AuditExecutionPage() {
         title={label}
       >
         <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
-        <span className="hidden sm:inline">{shortLabel}</span>
+        <span>{shortLabel}</span>
       </button>
     );
   };
@@ -902,8 +926,30 @@ export function AuditExecutionPage() {
 
   return (
     <div className="space-y-4">
+      {/* Shared hidden input for the inline per-row quick camera. capture="environment"
+          opens the rear camera on phones; on desktop it falls back to a file picker. */}
+      <input
+        type="file"
+        ref={inlineCameraInputRef}
+        className="hidden"
+        accept="image/*"
+        capture="environment"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          const itemId = captureTargetRef.current;
+          e.target.value = '';
+          captureTargetRef.current = null;
+          if (!file || itemId == null) return;
+          setCapturingItemId(itemId);
+          try {
+            await handleFileUpload(file, itemId);
+          } finally {
+            setCapturingItemId(null);
+          }
+        }}
+      />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate('/audits')}>
             <ArrowLeft className="h-4 w-4" />
@@ -915,7 +961,7 @@ export function AuditExecutionPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {auditData.status && (
             <Badge variant={
               auditData.status === 'Approved' ? 'compliant' :
@@ -969,10 +1015,10 @@ export function AuditExecutionPage() {
                 )}
                 Save
               </Button>
-              <Button size="icon" className="sm:hidden" onClick={handleSubmit} disabled={submitMutation.isPending} title="Submit">
+              <Button size="icon" className="sm:hidden" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending} title="Submit">
                 {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
-              <Button className="hidden sm:flex" onClick={handleSubmit} disabled={submitMutation.isPending}>
+              <Button className="hidden sm:flex" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending}>
                 {submitMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -1245,7 +1291,9 @@ export function AuditExecutionPage() {
                                 <div
                                   key={item.id}
                                   className={cn(
-                                    'flex items-start gap-4 border-b last:border-b-0 px-4 py-3',
+                                    // Phones: stack (point text on top, buttons below).
+                                    // sm+ : original side-by-side layout, unchanged.
+                                    'flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 border-b last:border-b-0 px-4 py-3',
                                     response.status === 'RM' && 'opacity-60'
                                   )}
                                 >
@@ -1286,18 +1334,19 @@ export function AuditExecutionPage() {
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:shrink-0 border-t pt-3 sm:border-t-0 sm:pt-0">
                                     {response.status === 'RM' ? (
                                       <Button
                                         variant="outline"
                                         size="sm"
+                                        className="w-full sm:w-auto"
                                         onClick={() => handleStatusChange(item.id, 'NV')}
                                         title="Restore this checkpoint into the audit"
                                       >
                                         <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
                                       </Button>
                                     ) : (
-                                      <div className="flex gap-1">
+                                      <div className="grid grid-cols-3 gap-1.5 w-full sm:flex sm:w-auto sm:gap-1">
                                         <StatusButton
                                           itemId={item.id}
                                           status="C"
@@ -1338,6 +1387,26 @@ export function AuditExecutionPage() {
                                           icon={Ban}
                                           activeClass="bg-muted text-foreground border-muted-foreground"
                                         />
+                                        {/* Quick camera: photograph this point inline (no Details dialog) */}
+                                        <button
+                                          type="button"
+                                          onClick={() => startInlineCapture(item)}
+                                          disabled={capturingItemId === item.id}
+                                          className={cn(
+                                            'flex items-center justify-center gap-1 rounded-md border font-medium transition-colors',
+                                            'h-10 w-full min-w-[44px] px-2.5 sm:h-8 sm:w-auto sm:px-2',
+                                            'text-sm sm:text-xs active:scale-95',
+                                            'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-60'
+                                          )}
+                                          title="Capture photo for this point"
+                                        >
+                                          {capturingItemId === item.id ? (
+                                            <Loader2 className="h-4 w-4 sm:h-3.5 sm:w-3.5 animate-spin" />
+                                          ) : (
+                                            <Camera className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+                                          )}
+                                          <span>Photo{response.evidenceCount > 0 ? ` (${response.evidenceCount})` : ''}</span>
+                                        </button>
                                       </div>
                                     )}
 
@@ -1362,6 +1431,7 @@ export function AuditExecutionPage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
+                                      className="ml-auto sm:ml-0"
                                       onClick={() => openDetailDialog(item)}
                                     >
                                       Details
@@ -1462,6 +1532,39 @@ export function AuditExecutionPage() {
             </Button>
             <Button onClick={saveCustomItem} disabled={isSavingCustom || !customDialog.auditPoint.trim()}>
               {isSavingCustom ? 'Saving…' : customDialog.editingId ? 'Save changes' : 'Add point'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit confirmation — guards against an accidental one-tap submit */}
+      <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Submit this audit for review?</DialogTitle>
+            <DialogDescription>
+              {auditData.auditNumber} will move to <strong>Pending Review</strong> and you won’t be
+              able to edit responses until a reviewer approves it or sends it back.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Marked so far</span>
+              <span className="font-medium">{completedCount} / {effectiveTotal}</span>
+            </div>
+            {effectiveTotal - completedCount > 0 && (
+              <p className="mt-2 text-amber-600">
+                {effectiveTotal - completedCount} item(s) are still not marked. You can still submit,
+                but check them first if that isn’t intended.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSubmitConfirm(false)} disabled={submitMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={() => { setShowSubmitConfirm(false); handleSubmit(); }} disabled={submitMutation.isPending}>
+              <Send className="mr-2 h-4 w-4" /> Yes, submit
             </Button>
           </DialogFooter>
         </DialogContent>
