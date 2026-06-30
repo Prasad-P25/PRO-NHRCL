@@ -51,23 +51,46 @@ $results = [ordered]@{}
 Write-Host "`n[1/4] cloudflared service..." -ForegroundColor Cyan
 try {
   $svc = Get-Service -Name 'cloudflared','Cloudflared' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($svc) {
-    Write-Host "  service '$($svc.Name)' already exists."
-  } else {
+  if (-not $svc) {
     Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
-    Write-Host "  installing service (config: $CF_CONF)..."
-    $out = & $CF --config $CF_CONF service install 2>&1
+    Write-Host "  installing service..."
+    $out = & $CF service install 2>&1
     $out | ForEach-Object { Write-Host "    $_" }
     if ($LASTEXITCODE -ne 0) { throw "cloudflared service install exit $LASTEXITCODE" }
     Start-Sleep -Seconds 2
     $svc = Get-Service -Name 'cloudflared','Cloudflared' -ErrorAction SilentlyContinue | Select-Object -First 1
   }
-  if ($svc) {
-    Set-Service -Name $svc.Name -StartupType Automatic
-    if ((Get-Service $svc.Name).Status -ne 'Running') { Start-Service -Name $svc.Name }
-    $results['cloudflared service'] = "OK ($($svc.Name): $((Get-Service $svc.Name).Status))"
-  } else { $results['cloudflared service'] = "FAILED (service not found after install)" }
+  if (-not $svc) { throw "service not found after install" }
+
+  # cloudflared's bare `service install` registers the exe with NO arguments, so the
+  # service never runs our named tunnel (-> Cloudflare 530). Force the correct command
+  # line: run the tunnel using the IT-profile config (neither path contains spaces, so
+  # no inner quoting is needed). Stop first so the new binPath takes effect.
+  $binPath = "$CF --config $CF_CONF tunnel run"
+  Write-Host "  setting service command: $binPath"
+  Stop-Service -Name $svc.Name -ErrorAction SilentlyContinue
+  & sc.exe config $svc.Name binPath= $binPath | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "sc config binPath failed (exit $LASTEXITCODE)" }
+  Set-Service -Name $svc.Name -StartupType Automatic
+  Start-Service -Name $svc.Name
+
+  # Verify the SERVICE actually routes before touching any fallback tunnel, so a bad
+  # config can never take the site down here. Only once the service serves 200 do we
+  # stop stray manual cloudflared instances so the service owns the single tunnel.
+  $svcRoutes = $false
+  for ($i=0; $i -lt 10; $i++) {
+    Start-Sleep -Seconds 3
+    try { if ((Invoke-WebRequest -UseBasicParsing 'https://api-audit.protecther.in/health' -TimeoutSec 8).StatusCode -eq 200) { $svcRoutes = $true; break } } catch {}
+  }
+  if ($svcRoutes) {
+    $svcPid = (Get-CimInstance Win32_Service -Filter "Name='$($svc.Name)'").ProcessId
+    Get-Process cloudflared -ErrorAction SilentlyContinue |
+      Where-Object { $_.Id -ne $svcPid } | Stop-Process -Force -ErrorAction SilentlyContinue
+    $results['cloudflared service'] = "OK ($($svc.Name) running and routing 200)"
+  } else {
+    $results['cloudflared service'] = "WARN: service started but site not 200 yet - left any fallback tunnel running; check creds/config access by LocalSystem"
+  }
 } catch {
   $results['cloudflared service'] = "FAILED: $($_.Exception.Message) - boot-start.bat will run the tunnel as a fallback"
 }
