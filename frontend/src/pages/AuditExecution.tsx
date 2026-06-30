@@ -863,9 +863,9 @@ export function AuditExecutionPage() {
       <button
         onClick={() => handleStatusChange(itemId, status)}
         className={cn(
-          // Mobile: larger touch targets (min 44x44px), Desktop: compact
+          // Comfortable tap targets on phones; show the letter label on every size.
           'flex items-center justify-center gap-1 rounded-md border transition-colors font-medium',
-          'h-10 w-10 sm:h-8 sm:min-w-[44px] sm:w-auto sm:px-2', // Size
+          'h-10 min-w-[44px] px-2.5 sm:h-8 sm:px-2', // Size (auto width so the label fits)
           'text-sm sm:text-xs', // Font size
           'active:scale-95', // Touch feedback
           isActive ? activeClass : 'hover:bg-muted text-muted-foreground'
@@ -873,7 +873,7 @@ export function AuditExecutionPage() {
         title={label}
       >
         <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
-        <span className="hidden sm:inline">{shortLabel}</span>
+        <span>{shortLabel}</span>
       </button>
     );
   };
@@ -1245,7 +1245,9 @@ export function AuditExecutionPage() {
                                 <div
                                   key={item.id}
                                   className={cn(
-                                    'flex items-start gap-4 border-b last:border-b-0 px-4 py-3',
+                                    // Phones: stack (point text on top, buttons below).
+                                    // sm+ : original side-by-side layout, unchanged.
+                                    'flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 border-b last:border-b-0 px-4 py-3',
                                     response.status === 'RM' && 'opacity-60'
                                   )}
                                 >
@@ -1286,7 +1288,7 @@ export function AuditExecutionPage() {
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:shrink-0 border-t pt-3 sm:border-t-0 sm:pt-0">
                                     {response.status === 'RM' ? (
                                       <Button
                                         variant="outline"
@@ -1297,7 +1299,7 @@ export function AuditExecutionPage() {
                                         <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
                                       </Button>
                                     ) : (
-                                      <div className="flex gap-1">
+                                      <div className="flex flex-wrap gap-1">
                                         <StatusButton
                                           itemId={item.id}
                                           status="C"
@@ -1362,6 +1364,7 @@ export function AuditExecutionPage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
+                                      className="ml-auto sm:ml-0"
                                       onClick={() => openDetailDialog(item)}
                                     >
                                       Details
