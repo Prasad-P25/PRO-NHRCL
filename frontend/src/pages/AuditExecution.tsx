@@ -887,7 +887,7 @@ export function AuditExecutionPage() {
         className={cn(
           // Comfortable tap targets on phones; show the letter label on every size.
           'flex items-center justify-center gap-1 rounded-md border transition-colors font-medium',
-          'h-10 min-w-[44px] px-2.5 sm:h-8 sm:px-2', // Size (auto width so the label fits)
+          'h-10 w-full min-w-[44px] px-2.5 sm:h-8 sm:w-auto sm:px-2', // Phones: fill the grid cell
           'text-sm sm:text-xs', // Font size
           'active:scale-95', // Touch feedback
           isActive ? activeClass : 'hover:bg-muted text-muted-foreground'
@@ -947,7 +947,7 @@ export function AuditExecutionPage() {
         }}
       />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate('/audits')}>
             <ArrowLeft className="h-4 w-4" />
@@ -959,7 +959,7 @@ export function AuditExecutionPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {auditData.status && (
             <Badge variant={
               auditData.status === 'Approved' ? 'compliant' :
@@ -1337,13 +1337,14 @@ export function AuditExecutionPage() {
                                       <Button
                                         variant="outline"
                                         size="sm"
+                                        className="w-full sm:w-auto"
                                         onClick={() => handleStatusChange(item.id, 'NV')}
                                         title="Restore this checkpoint into the audit"
                                       >
                                         <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
                                       </Button>
                                     ) : (
-                                      <div className="flex flex-wrap gap-1">
+                                      <div className="grid grid-cols-3 gap-1.5 w-full sm:flex sm:w-auto sm:gap-1">
                                         <StatusButton
                                           itemId={item.id}
                                           status="C"
@@ -1391,7 +1392,7 @@ export function AuditExecutionPage() {
                                           disabled={capturingItemId === item.id}
                                           className={cn(
                                             'flex items-center justify-center gap-1 rounded-md border font-medium transition-colors',
-                                            'h-10 min-w-[44px] px-2.5 sm:h-8 sm:px-2',
+                                            'h-10 w-full min-w-[44px] px-2.5 sm:h-8 sm:w-auto sm:px-2',
                                             'text-sm sm:text-xs active:scale-95',
                                             'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-60'
                                           )}
