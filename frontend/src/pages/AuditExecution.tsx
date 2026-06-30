@@ -159,6 +159,8 @@ export function AuditExecutionPage() {
   // Approve/Reject state
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  // Guard against an accidental one-tap submit (locks the audit for editing).
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   // Evidence preview state
   const [previewEvidence, setPreviewEvidence] = useState<Evidence | null>(null);
@@ -1013,10 +1015,10 @@ export function AuditExecutionPage() {
                 )}
                 Save
               </Button>
-              <Button size="icon" className="sm:hidden" onClick={handleSubmit} disabled={submitMutation.isPending} title="Submit">
+              <Button size="icon" className="sm:hidden" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending} title="Submit">
                 {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
-              <Button className="hidden sm:flex" onClick={handleSubmit} disabled={submitMutation.isPending}>
+              <Button className="hidden sm:flex" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending}>
                 {submitMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -1530,6 +1532,39 @@ export function AuditExecutionPage() {
             </Button>
             <Button onClick={saveCustomItem} disabled={isSavingCustom || !customDialog.auditPoint.trim()}>
               {isSavingCustom ? 'Saving…' : customDialog.editingId ? 'Save changes' : 'Add point'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit confirmation — guards against an accidental one-tap submit */}
+      <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Submit this audit for review?</DialogTitle>
+            <DialogDescription>
+              {auditData.auditNumber} will move to <strong>Pending Review</strong> and you won’t be
+              able to edit responses until a reviewer approves it or sends it back.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Marked so far</span>
+              <span className="font-medium">{completedCount} / {effectiveTotal}</span>
+            </div>
+            {effectiveTotal - completedCount > 0 && (
+              <p className="mt-2 text-amber-600">
+                {effectiveTotal - completedCount} item(s) are still not marked. You can still submit,
+                but check them first if that isn’t intended.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSubmitConfirm(false)} disabled={submitMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={() => { setShowSubmitConfirm(false); handleSubmit(); }} disabled={submitMutation.isPending}>
+              <Send className="mr-2 h-4 w-4" /> Yes, submit
             </Button>
           </DialogFooter>
         </DialogContent>
