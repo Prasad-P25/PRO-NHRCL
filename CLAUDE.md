@@ -397,8 +397,15 @@ restore-database.bat <file> [target_db]   # Restore a .dump/.sql; optional throw
 ### Auto-Start on Boot
 `setup-autostart.ps1` (run ONCE, as Administrator) makes the stack survive an unattended
 reboot — no interactive login required:
-- **cloudflared** is installed as a Windows **service** (LocalSystem, Automatic), launched with
-  `--config C:\Users\IT\.cloudflared\config.yml`, so the tunnel is always up.
+- **cloudflared** is installed as a Windows **service** (LocalSystem, Automatic). GOTCHA:
+  cloudflared's bare `service install` registers the exe with NO arguments, so the service
+  never runs the tunnel → all hostnames return **Cloudflare 530**. The service command line
+  MUST be `cloudflared.exe --config C:\Users\IT\.cloudflared\config.yml tunnel run` (set via
+  `sc config Cloudflared binPath= ...`). `setup-autostart.ps1` now enforces this. If the
+  service is broken/stuck "Stop Pending", run **`fix-cloudflared-service.ps1`** as admin — it
+  force-kills the hung process, applies the correct binPath, and verifies the site serves 200
+  before stopping any fallback tunnel. (`boot-start.bat` also starts the tunnel as a fallback
+  if the service isn't running, so a reboot still comes up.)
 - **`PROTECTHER-AutoStart`** scheduled task runs `boot-start.bat` **At startup** as the `IT`
   account with **S4U logon** ("run whether logged on or not", no stored password, local
   resources only — which is all the app needs). 30s start delay + restart-on-failure.
