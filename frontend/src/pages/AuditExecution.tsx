@@ -140,6 +140,8 @@ export function AuditExecutionPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSaveEnabled] = useState(true); // Can be made configurable later
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  // Which item's inline quick-camera is currently uploading (for the per-row spinner).
+  const [capturingItemId, setCapturingItemId] = useState<number | null>(null);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
@@ -148,6 +150,11 @@ export function AuditExecutionPage() {
   // across devices than a custom getUserMedia + canvas capture, which produced
   // black frames on some phones.
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Inline per-row quick camera (next to the status buttons). captureTargetRef holds
+  // the item id being photographed so the shared hidden input's onChange knows where
+  // to attach the evidence.
+  const inlineCameraInputRef = useRef<HTMLInputElement>(null);
+  const captureTargetRef = useRef<number | null>(null);
 
   // Approve/Reject state
   const [showRejectDialog, setShowRejectDialog] = useState(false);
@@ -794,6 +801,21 @@ export function AuditExecutionPage() {
   // (Plain assignment, not a hook — safe to run after the early return above.)
   handleFileUploadRef.current = handleFileUpload;
 
+  // Quick inline capture: open the camera for THIS item and attach the photo without
+  // opening the Details dialog. Evidence is tied to a saved response, so a status is
+  // required first. On desktop the OS file picker opens instead of a live camera.
+  const startInlineCapture = (item: AuditItem) => {
+    if (!getResponse(item.id).status) {
+      toast({
+        title: 'Select a status first',
+        description: 'Mark this point C / NC / NA / NV, then capture the photo.',
+      });
+      return;
+    }
+    captureTargetRef.current = item.id;
+    inlineCameraInputRef.current?.click();
+  };
+
   // Build a URL for an evidence file. The ?e= param cache-busts stale Cloudflare
   // edge responses that carried the old same-origin CORP header (which blocked
   // the cross-subdomain image from loading in the browser).
@@ -902,6 +924,28 @@ export function AuditExecutionPage() {
 
   return (
     <div className="space-y-4">
+      {/* Shared hidden input for the inline per-row quick camera. capture="environment"
+          opens the rear camera on phones; on desktop it falls back to a file picker. */}
+      <input
+        type="file"
+        ref={inlineCameraInputRef}
+        className="hidden"
+        accept="image/*"
+        capture="environment"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          const itemId = captureTargetRef.current;
+          e.target.value = '';
+          captureTargetRef.current = null;
+          if (!file || itemId == null) return;
+          setCapturingItemId(itemId);
+          try {
+            await handleFileUpload(file, itemId);
+          } finally {
+            setCapturingItemId(null);
+          }
+        }}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -1340,6 +1384,26 @@ export function AuditExecutionPage() {
                                           icon={Ban}
                                           activeClass="bg-muted text-foreground border-muted-foreground"
                                         />
+                                        {/* Quick camera: photograph this point inline (no Details dialog) */}
+                                        <button
+                                          type="button"
+                                          onClick={() => startInlineCapture(item)}
+                                          disabled={capturingItemId === item.id}
+                                          className={cn(
+                                            'flex items-center justify-center gap-1 rounded-md border font-medium transition-colors',
+                                            'h-10 min-w-[44px] px-2.5 sm:h-8 sm:px-2',
+                                            'text-sm sm:text-xs active:scale-95',
+                                            'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-60'
+                                          )}
+                                          title="Capture photo for this point"
+                                        >
+                                          {capturingItemId === item.id ? (
+                                            <Loader2 className="h-4 w-4 sm:h-3.5 sm:w-3.5 animate-spin" />
+                                          ) : (
+                                            <Camera className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+                                          )}
+                                          <span>Photo{response.evidenceCount > 0 ? ` (${response.evidenceCount})` : ''}</span>
+                                        </button>
                                       </div>
                                     )}
 
