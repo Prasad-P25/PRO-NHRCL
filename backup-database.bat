@@ -78,6 +78,23 @@ if exist "%NAS_DIR%\" (
     echo [WARN] NAS path not reachable: %NAS_DIR% - backup exists LOCALLY ONLY.
 )
 
+REM --- Evidence photos: the DB dump does NOT contain uploaded files (they live on
+REM disk in backend\uploads), so mirror them to the NAS too. Incremental (robocopy
+REM skips unchanged files); additive (no purge) so removed photos stay in the backup.
+set UPLOADS_SRC=C:\PROJECTS\PRO-NHRCL\backend\uploads
+set NAS_UPLOADS=\\PLLP_NAS\Protecther\IT\PROTECTHER-Audit-Uploads
+if exist "%UPLOADS_SRC%" (
+    echo Backing up evidence photos to NAS: %NAS_UPLOADS%
+    robocopy "%UPLOADS_SRC%" "%NAS_UPLOADS%" /E /R:2 /W:5 /NFL /NDL /NJH /NJS >nul
+    if !ERRORLEVEL! GEQ 8 (
+        echo [WARN] Evidence photo backup to NAS had errors.
+    ) else (
+        echo [SUCCESS] Evidence photos synced to NAS.
+    )
+) else (
+    echo [WARN] uploads folder not found: %UPLOADS_SRC%
+)
+
 echo ================================================
 echo Backup completed.
 echo ================================================
