@@ -996,23 +996,25 @@ export function AuditExecutionPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-xl font-bold">{auditData.auditNumber}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-bold">{auditData.auditNumber}</h1>
+              {auditData.status && (
+                <Badge variant={
+                  auditData.status === 'Approved' ? 'compliant' :
+                  auditData.status === 'Pending Review' ? 'pending' :
+                  auditData.status === 'In Progress' ? 'inProgress' :
+                  'secondary'
+                }>
+                  {auditData.status}
+                </Badge>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               Package: {auditData.package?.code} - {auditData.package?.name}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {auditData.status && (
-            <Badge variant={
-              auditData.status === 'Approved' ? 'compliant' :
-              auditData.status === 'Pending Review' ? 'pending' :
-              auditData.status === 'In Progress' ? 'inProgress' :
-              'secondary'
-            }>
-              {auditData.status}
-            </Badge>
-          )}
           {/* Labeled export buttons (visible on all sizes) */}
           <Button variant="outline" onClick={handleExportPDF}>
             <Printer className="mr-2 h-4 w-4" />
