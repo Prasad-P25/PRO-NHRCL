@@ -98,6 +98,45 @@ interface CategoryWithSections {
   }[];
 }
 
+// Downscale + recompress large photos in the browser before upload — faster
+// uploads and far less mobile data on site. Non-images (or already-small files)
+// pass through unchanged; any failure falls back to the original file.
+async function compressImageIfNeeded(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.size < 300 * 1024) return file;
+  try {
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const img: HTMLImageElement = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = dataUrl;
+    });
+    const maxDim = 1600;
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const width = Math.round(img.width * scale);
+    const height = Math.round(img.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, width, height);
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.7)
+    );
+    if (!blob || blob.size >= file.size) return file; // no gain — keep original
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
 export function AuditExecutionPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -716,6 +755,8 @@ export function AuditExecutionPage() {
   // Handle file upload
   const handleFileUpload = async (file: File, itemId: number) => {
     if (!file) return;
+    // Shrink large photos in-browser before upload (faster + less mobile data).
+    file = await compressImageIfNeeded(file);
 
     const response = getResponse(itemId);
 
@@ -925,7 +966,7 @@ export function AuditExecutionPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-24 sm:pb-0">
       {/* Shared hidden input for the inline per-row quick camera. capture="environment"
           opens the rear camera on phones; on desktop it falls back to a file picker. */}
       <input
@@ -2026,6 +2067,33 @@ export function AuditExecutionPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Mobile sticky action bar — keeps the key actions reachable without
+          scrolling back to the top. Phones only (sm:hidden). */}
+      {(auditData.status === 'Draft' || auditData.status === 'In Progress') && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex gap-2 border-t bg-background/95 p-3 backdrop-blur sm:hidden">
+          <Button variant="outline" className="flex-1" onClick={handleSave} disabled={isSaving || saveMutation.isPending}>
+            {isSaving || saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Save
+          </Button>
+          <Button className="flex-1" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending}>
+            <Send className="mr-2 h-4 w-4" />
+            Submit
+          </Button>
+        </div>
+      )}
+      {auditData.status === 'Pending Review' && canApprove && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex gap-2 border-t bg-background/95 p-3 backdrop-blur sm:hidden">
+          <Button variant="destructive" className="flex-1" onClick={() => setShowRejectDialog(true)} disabled={rejectMutation.isPending}>
+            <ThumbsDown className="mr-2 h-4 w-4" />
+            Reject
+          </Button>
+          <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
+            <ThumbsUp className="mr-2 h-4 w-4" />
+            Approve
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
