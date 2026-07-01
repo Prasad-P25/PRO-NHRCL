@@ -374,6 +374,8 @@ start-protecther.bat          # Manual BUILD + (re)start of backend (:5000) + fr
 boot-start.bat                # Headless start of the ALREADY-BUILT app (no build); used by the
                               #   PROTECTHER-AutoStart task at boot. Waits for Postgres, idempotent.
 stop-protecther.bat           # Stop backend/frontend node procs + the cloudflared service
+restart-backend.ps1           # (admin) Restart ONLY the backend to reload backend/.env
+                              #   (e.g. after changing email/SMTP). Frontend + tunnel untouched.
 start-staging.bat             # Start staging backend (:5001) + frontend (:3001) from working tree
 refresh-staging.bat           # Rebuild staging DB as a fresh copy of production
 ```
