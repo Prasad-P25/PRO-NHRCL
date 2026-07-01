@@ -179,7 +179,7 @@ export function NewAuditPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">New Audit</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">New Audit</h1>
           <p className="text-muted-foreground flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             {currentProject?.name || 'Select a project'} | Step {displayStep} of {totalSteps}
@@ -204,7 +204,7 @@ export function NewAuditPage() {
             </div>
             {s < totalSteps && (
               <div
-                className={`h-1 w-16 ${s < displayStep ? 'bg-compliant' : 'bg-muted'}`}
+                className={`h-1 w-8 sm:w-16 ${s < displayStep ? 'bg-compliant' : 'bg-muted'}`}
               />
             )}
           </div>
