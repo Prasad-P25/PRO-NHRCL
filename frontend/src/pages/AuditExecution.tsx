@@ -1013,29 +1013,20 @@ export function AuditExecutionPage() {
               {auditData.status}
             </Badge>
           )}
-          {/* Mobile: icon only, Desktop: icon + text */}
-          <Button variant="outline" size="icon" className="sm:hidden" onClick={handleExportPDF} title="Print PDF">
-            <Printer className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" className="hidden sm:flex" onClick={handleExportPDF}>
+          {/* Labeled export buttons (visible on all sizes) */}
+          <Button variant="outline" onClick={handleExportPDF}>
             <Printer className="mr-2 h-4 w-4" />
-            Print PDF
+            Print
           </Button>
-          <Button variant="outline" size="icon" className="sm:hidden" onClick={handleExportWord} disabled={isExporting} title="Export Word">
-            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-          </Button>
-          <Button variant="outline" className="hidden sm:flex" onClick={handleExportWord} disabled={isExporting}>
+          <Button variant="outline" onClick={handleExportWord} disabled={isExporting}>
             {isExporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <FileDown className="mr-2 h-4 w-4" />
             )}
-            Export Word
+            Word
           </Button>
-          <Button variant="default" size="icon" className="sm:hidden bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC} title="NC Report">
-            {isExportingNC ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
-          </Button>
-          <Button variant="default" className="hidden sm:flex bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC}>
+          <Button variant="default" className="bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC}>
             {isExportingNC ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -1045,9 +1036,6 @@ export function AuditExecutionPage() {
           </Button>
           {(auditData.status === 'Draft' || auditData.status === 'In Progress') && (
             <>
-              <Button variant="outline" size="icon" className="sm:hidden" onClick={handleSave} disabled={isSaving || saveMutation.isPending} title="Save">
-                {isSaving || saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              </Button>
               <Button variant="outline" className="hidden sm:flex" onClick={handleSave} disabled={isSaving || saveMutation.isPending}>
                 {isSaving || saveMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1055,9 +1043,6 @@ export function AuditExecutionPage() {
                   <Save className="mr-2 h-4 w-4" />
                 )}
                 Save
-              </Button>
-              <Button size="icon" className="sm:hidden" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending} title="Submit">
-                {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
               <Button className="hidden sm:flex" onClick={() => setShowSubmitConfirm(true)} disabled={submitMutation.isPending}>
                 {submitMutation.isPending ? (
@@ -1074,16 +1059,6 @@ export function AuditExecutionPage() {
             <>
               <Button
                 variant="default"
-                size="icon"
-                className="sm:hidden bg-green-600 hover:bg-green-700"
-                onClick={() => approveMutation.mutate()}
-                disabled={approveMutation.isPending}
-                title="Approve"
-              >
-                {approveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
-              </Button>
-              <Button
-                variant="default"
                 className="hidden sm:flex bg-green-600 hover:bg-green-700"
                 onClick={() => approveMutation.mutate()}
                 disabled={approveMutation.isPending}
@@ -1094,16 +1069,6 @@ export function AuditExecutionPage() {
                   <ThumbsUp className="mr-2 h-4 w-4" />
                 )}
                 Approve
-              </Button>
-              <Button
-                variant="destructive"
-                size="icon"
-                className="sm:hidden"
-                onClick={() => setShowRejectDialog(true)}
-                disabled={rejectMutation.isPending}
-                title="Reject"
-              >
-                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsDown className="h-4 w-4" />}
               </Button>
               <Button
                 variant="destructive"
