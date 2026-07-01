@@ -1014,13 +1014,13 @@ export function AuditExecutionPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Labeled export buttons (visible on all sizes) */}
-          <Button variant="outline" onClick={handleExportPDF}>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          {/* Labeled export buttons — fill the row on phones, natural width on desktop */}
+          <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportPDF}>
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
-          <Button variant="outline" onClick={handleExportWord} disabled={isExporting}>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportWord} disabled={isExporting}>
             {isExporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -1028,7 +1028,7 @@ export function AuditExecutionPage() {
             )}
             Word
           </Button>
-          <Button variant="default" className="bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC}>
+          <Button variant="default" className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700" onClick={handleExportNCReport} disabled={isExportingNC}>
             {isExportingNC ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
