@@ -1671,7 +1671,7 @@ export function AuditExecutionPage() {
 
               <div>
                 <label className="text-sm font-medium">Evidence</label>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <input
                     type="file"
                     ref={photoInputRef}
