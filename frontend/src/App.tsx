@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { LoginPage } from '@/pages/Login';
+import { ResetPasswordPage } from '@/pages/ResetPassword';
 import { DashboardPage } from '@/pages/Dashboard';
 import { AuditListPage } from '@/pages/AuditList';
 import { NewAuditPage } from '@/pages/NewAudit';
@@ -35,6 +36,8 @@ function App() {
           isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />
         }
       />
+      {/* Password reset from the email link — public (user is logged out) */}
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       {/* Protected routes */}
       <Route element={<MainLayout />}>
