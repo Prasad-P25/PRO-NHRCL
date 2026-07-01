@@ -847,7 +847,7 @@ export function DashboardPage() {
           </DialogHeader>
           {selectedPkgData && (
             <div className="space-y-6 py-4">
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-1 gap-4 text-center sm:grid-cols-3">
                 <div className="p-4 bg-muted rounded-lg">
                   <div className="text-2xl font-bold text-primary">
                     {selectedPkgData.compliancePercentage}%
