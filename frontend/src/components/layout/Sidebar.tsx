@@ -2,7 +2,6 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   ClipboardCheck,
-  TrendingUp,
   AlertTriangle,
   FileText,
   Settings,
@@ -38,16 +37,6 @@ const navItems: NavItem[] = [
       { title: 'My Audits', href: '/audits/my' },
       { title: 'Pending Review', href: '/audits/pending' },
       { title: 'All Audits', href: '/audits' },
-    ],
-  },
-  {
-    title: 'KPI',
-    icon: TrendingUp,
-    children: [
-      { title: 'Dashboard', href: '/kpi/dashboard' },
-      { title: 'Leading Indicators', href: '/kpi/leading' },
-      { title: 'Lagging Indicators', href: '/kpi/lagging' },
-      { title: 'Enter KPIs', href: '/kpi/entry' },
     ],
   },
   {

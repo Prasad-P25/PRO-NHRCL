@@ -35,8 +35,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { dashboardService } from '@/services/dashboard.service';
-import { kpiService, type KPISummary, type OverallKPI } from '@/services/kpi.service';
-import { KPIGauge } from '@/components/ui/kpi-gauge';
 import {
   XAxis,
   YAxis,
@@ -81,23 +79,6 @@ export function DashboardPage() {
     refetchInterval: 60000, // Refresh every minute
     enabled: !!currentProject,
   });
-
-  // Fetch KPI summary for gauges
-  const { data: kpiData } = useQuery({
-    queryKey: ['kpiSummary', currentProject?.id],
-    queryFn: async () => {
-      const response = await kpiService.getSummary();
-      return {
-        summary: response.data || [],
-        overallKPI: response.overallKPI || null
-      };
-    },
-    refetchInterval: 60000,
-    enabled: !!currentProject,
-  });
-
-  const kpiSummary = kpiData?.summary || [];
-  const overallKPI: OverallKPI | null = kpiData?.overallKPI || null;
 
   if (isLoading) {
     return <DashboardSkeleton />;
@@ -344,139 +325,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* KPI Gauges Section */}
-      {kpiSummary.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Key Performance Indicators
-            </CardTitle>
-            <CardDescription>Current month KPI performance at a glance</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-8">
-              {/* Overall Project KPI */}
-              {overallKPI && (
-                <div className="flex flex-col items-center justify-center p-6 bg-gradient-to-br from-muted/50 to-muted rounded-xl border">
-                  <h3 className="text-lg font-semibold mb-4">Overall Project KPI</h3>
-                  <div className="relative">
-                    <svg width="200" height="130" viewBox="0 0 200 130">
-                      {/* Background arc */}
-                      <path
-                        d={`M 20 110 A 80 80 0 0 1 180 110`}
-                        fill="none"
-                        stroke="#E5E7EB"
-                        strokeWidth="16"
-                        strokeLinecap="round"
-                      />
-                      {/* Value arc */}
-                      <path
-                        d={`M 20 110 A 80 80 0 0 1 180 110`}
-                        fill="none"
-                        stroke={
-                          overallKPI.score === null ? '#9CA3AF' :
-                          overallKPI.score >= 90 ? '#22C55E' :
-                          overallKPI.score >= 75 ? '#84CC16' :
-                          overallKPI.score >= 60 ? '#F59E0B' : '#EF4444'
-                        }
-                        strokeWidth="16"
-                        strokeLinecap="round"
-                        strokeDasharray={`${Math.PI * 80}`}
-                        strokeDashoffset={`${Math.PI * 80 * (1 - (overallKPI.score || 0) / 100)}`}
-                        style={{ transition: 'stroke-dashoffset 0.8s ease-out' }}
-                      />
-                      {/* Score text */}
-                      <text
-                        x="100"
-                        y="75"
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fill={overallKPI.score !== null ? '#111827' : '#9CA3AF'}
-                        fontSize="36"
-                        fontWeight="bold"
-                      >
-                        {overallKPI.score !== null ? overallKPI.score : '-'}
-                      </text>
-                      <text
-                        x="100"
-                        y="100"
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fill="#6B7280"
-                        fontSize="14"
-                      >
-                        %
-                      </text>
-                    </svg>
-                  </div>
-                  <Badge
-                    variant={
-                      overallKPI.status === 'Excellent' ? 'default' :
-                      overallKPI.status === 'Good' ? 'secondary' :
-                      overallKPI.status === 'Fair' ? 'outline' : 'destructive'
-                    }
-                    className="mt-2 text-sm px-4 py-1"
-                  >
-                    {overallKPI.status}
-                  </Badge>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Based on {overallKPI.kpisWithData} of {overallKPI.totalKPIs} KPIs with data
-                  </p>
-                </div>
-              )}
-              {/* Leading Indicators */}
-              {kpiSummary.filter((k: KPISummary) => k.type === 'Leading').length > 0 && (
-                <div>
-                  <h3 className="font-semibold mb-1">Leading Indicators</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Proactive safety measures</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-                    {kpiSummary
-                      .filter((k: KPISummary) => k.type === 'Leading')
-                      .map((kpi: KPISummary) => (
-                        <KPIGauge
-                          key={kpi.indicatorId}
-                          value={kpi.actualValue}
-                          target={kpi.targetValue}
-                          max={Math.max(kpi.targetValue * 1.5, kpi.actualValue * 1.2, 100)}
-                          label={kpi.name.length > 18 ? kpi.name.substring(0, 16) + '...' : kpi.name}
-                          unit={kpi.unit || '%'}
-                          size="md"
-                          invertColors={kpi.invertColors}
-                        />
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Lagging Indicators */}
-              {kpiSummary.filter((k: KPISummary) => k.type === 'Lagging').length > 0 && (
-                <div>
-                  <h3 className="font-semibold mb-1">Lagging Indicators</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Outcome-based safety metrics</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-                    {kpiSummary
-                      .filter((k: KPISummary) => k.type === 'Lagging')
-                      .map((kpi: KPISummary) => (
-                        <KPIGauge
-                          key={kpi.indicatorId}
-                          value={kpi.actualValue}
-                          target={kpi.targetValue}
-                          max={Math.max(kpi.targetValue * 1.5, kpi.actualValue * 1.2, 100)}
-                          label={kpi.name.length > 18 ? kpi.name.substring(0, 16) + '...' : kpi.name}
-                          unit={kpi.unit || '%'}
-                          size="md"
-                          invertColors={kpi.invertColors}
-                        />
-                      ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Charts Row 1 */}
       <div className="grid gap-4 lg:grid-cols-2">
