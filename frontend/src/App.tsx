@@ -7,8 +7,6 @@ import { AuditListPage } from '@/pages/AuditList';
 import { NewAuditPage } from '@/pages/NewAudit';
 import { AuditExecutionPage } from '@/pages/AuditExecution';
 import { CAPAListPage } from '@/pages/CAPAList';
-import { KPIEntryPage } from '@/pages/KPIEntry';
-import { KPIDashboardPage } from '@/pages/KPIDashboard';
 import { ReportsPage } from '@/pages/Reports';
 import { MaturityListPage } from '@/pages/MaturityList';
 import { MaturityAssessmentPage } from '@/pages/MaturityAssessment';
@@ -50,13 +48,6 @@ function App() {
         <Route path="/audits/pending" element={<AuditListPage />} />
         <Route path="/audits/:id" element={<AuditExecutionPage />} />
         <Route path="/audits/:id/execute" element={<AuditExecutionPage />} />
-
-        {/* KPI routes */}
-        <Route path="/kpi" element={<KPIDashboardPage />} />
-        <Route path="/kpi/dashboard" element={<KPIDashboardPage />} />
-        <Route path="/kpi/leading" element={<KPIEntryPage />} />
-        <Route path="/kpi/lagging" element={<KPIEntryPage />} />
-        <Route path="/kpi/entry" element={<KPIEntryPage />} />
 
         {/* CAPA routes */}
         <Route path="/capa" element={<CAPAListPage />} />
