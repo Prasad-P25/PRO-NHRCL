@@ -208,6 +208,11 @@ Protected routes wrapped in `MainLayout`. Key paths:
 - `/audits`, `/audits/new`, `/audits/:id` - Audit management
 - `/capa`, `/capa/analytics`, `/capa/open`, `/capa/overdue` - CAPA tracking
 - `/kpi`, `/kpi/dashboard`, `/kpi/entry` - KPI data
+- `/kpi/*` - **Hidden from the UI** (removed from the sidebar, routes, and the Dashboard KPI
+  gauges as of 2026-07). The KPI code, API, and `kpi_indicators`/`kpi_entries` tables are all
+  retained — it was fully built but had zero data and is disconnected from the audit workflow.
+  Re-enable by restoring the KPI nav group in `Sidebar.tsx`, the `/kpi*` routes in `App.tsx`,
+  and the KPI section in `Dashboard.tsx` (see the "Hide unused KPI module" commit).
 - `/maturity`, `/maturity/:id` - Safety maturity assessments
 - `/projects`, `/projects/:id/settings` - Multi-project management
 - `/settings/users`, `/settings/roles`, `/settings/checklist` - Admin settings
