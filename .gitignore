@@ -60,3 +60,4 @@ dist_deploybak/
 
 # Checklist source workbook (data file; reload-checklist.ts falls back to NAS)
 backend/MAHSR_V5.xlsx
+frontend/dist_new/

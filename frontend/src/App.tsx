@@ -7,6 +7,8 @@ import { AuditListPage } from '@/pages/AuditList';
 import { NewAuditPage } from '@/pages/NewAudit';
 import { AuditExecutionPage } from '@/pages/AuditExecution';
 import { CAPAListPage } from '@/pages/CAPAList';
+import { ClientCorrectionsPage } from '@/pages/ClientCorrections';
+import { RectificationReviewPage } from '@/pages/RectificationReview';
 import { ReportsPage } from '@/pages/Reports';
 import { MaturityListPage } from '@/pages/MaturityList';
 import { MaturityAssessmentPage } from '@/pages/MaturityAssessment';
@@ -21,6 +23,16 @@ import { ProjectDashboardPage } from '@/pages/ProjectDashboard';
 import { CAPAAnalyticsPage } from '@/pages/CAPAAnalytics';
 import { RoleGuard } from '@/components/layout/RoleGuard';
 import { useAuthStore } from '@/store/authStore';
+
+// Home ("/") depends on role: Clients get their fix list, everyone else the dashboard.
+function HomeRoute() {
+  const { user } = useAuthStore();
+  const roleName = user?.role?.name || (user as any)?.roleName || '';
+  if (roleName === 'Client') {
+    return <Navigate to="/my-corrections" replace />;
+  }
+  return <DashboardPage />;
+}
 
 function App() {
   const { isAuthenticated } = useAuthStore();
@@ -39,7 +51,23 @@ function App() {
 
       {/* Protected routes */}
       <Route element={<MainLayout />}>
-        <Route path="/" element={<DashboardPage />} />
+        {/* Clients have no dashboard — send them straight to their fix list */}
+        <Route path="/" element={<HomeRoute />} />
+
+        {/* Client rectification portal (Client role only) */}
+        <Route
+          path="/my-corrections"
+          element={<RoleGuard roles={['Client']}><ClientCorrectionsPage /></RoleGuard>}
+        />
+        {/* Auditor-side review of client submissions */}
+        <Route
+          path="/rectifications"
+          element={
+            <RoleGuard roles={['Super Admin', 'PMC Head', 'Package Manager', 'Auditor']}>
+              <RectificationReviewPage />
+            </RoleGuard>
+          }
+        />
 
         {/* Audit routes */}
         <Route path="/audits" element={<AuditListPage />} />

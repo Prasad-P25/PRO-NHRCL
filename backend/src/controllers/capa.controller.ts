@@ -613,4 +613,273 @@ export class CAPAController {
       next(error);
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Client Rectification Portal (Phase 1)
+  // A "Client" user is scoped to ONE package (users.package_id). They see only
+  // their package's NC items, upload "fixed" photos, and submit for review. An
+  // auditor then Approves (closes the CAPA) or Rejects (sends it back).
+  // ---------------------------------------------------------------------------
+
+  // Shared SELECT of a CAPA row + its before/after photos, for one package.
+  private static readonly CORRECTION_SELECT = `
+    SELECT c.id, c.capa_number, c.finding_description, c.target_date, c.status,
+           c.rectification_status, c.rectification_review_note, c.rectification_submitted_at,
+           ai.audit_point, ai.standard_reference,
+           a.audit_number, p.code as package_code, p.name as package_name,
+           ar.observation, ar.risk_rating,
+           COALESCE((SELECT json_agg(json_build_object('id', e.id, 'filePath', e.file_path, 'fileName', e.file_name) ORDER BY e.id)
+                     FROM audit_evidences e WHERE e.response_id = c.response_id), '[]') as problem_photos,
+           COALESCE((SELECT json_agg(json_build_object('id', ce.id, 'filePath', ce.file_path, 'fileName', ce.file_name, 'uploadedAt', ce.uploaded_at) ORDER BY ce.id)
+                     FROM capa_evidences ce WHERE ce.capa_id = c.id), '[]') as fix_photos
+    FROM capa c
+    JOIN audit_responses ar ON c.response_id = ar.id
+    JOIN audit_items ai ON ar.audit_item_id = ai.id
+    JOIN audits a ON ar.audit_id = a.id
+    JOIN packages p ON a.package_id = p.id
+  `;
+
+  private mapCorrection = (row: any) => ({
+    id: row.id,
+    capaNumber: row.capa_number,
+    auditNumber: row.audit_number,
+    packageCode: row.package_code,
+    packageName: row.package_name,
+    auditPoint: row.audit_point,
+    standardReference: row.standard_reference,
+    findingDescription: row.finding_description,
+    observation: row.observation,
+    riskRating: row.risk_rating,
+    targetDate: row.target_date,
+    status: row.status,
+    rectificationStatus: row.rectification_status,
+    reviewNote: row.rectification_review_note,
+    submittedAt: row.rectification_submitted_at,
+    problemPhotos: row.problem_photos || [],
+    fixPhotos: row.fix_photos || [],
+  });
+
+  /**
+   * Load a CAPA and enforce that the calling Client owns its package.
+   * Throws 403 if the Client has no package or the CAPA is in another package.
+   */
+  private assertClientCAPAAccess = async (capaId: string | number, req: AuthRequest) => {
+    if (!req.user!.packageId) {
+      throw new AppError('This client account is not linked to a package', 403);
+    }
+    const result = await db.query(
+      `SELECT c.id, c.status, c.rectification_status, a.package_id
+       FROM capa c
+       JOIN audit_responses ar ON c.response_id = ar.id
+       JOIN audits a ON ar.audit_id = a.id
+       WHERE c.id = $1`,
+      [capaId]
+    );
+    if (result.rows.length === 0) {
+      throw new AppError('Correction item not found', 404);
+    }
+    if (result.rows[0].package_id !== req.user!.packageId) {
+      throw new AppError('Access denied to this correction item', 403);
+    }
+    return result.rows[0];
+  };
+
+  // GET /capa/my-corrections — the Client's own package NC items.
+  getMyCorrections = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user!.packageId) {
+        throw new AppError('This client account is not linked to a package', 403);
+      }
+      const result = await db.query(
+        `${CAPAController.CORRECTION_SELECT}
+         WHERE a.package_id = $1
+         ORDER BY (c.rectification_status = 'Rejected') DESC,
+                  (c.status <> 'Closed') DESC,
+                  c.created_at DESC`,
+        [req.user!.packageId]
+      );
+      res.json({ success: true, data: result.rows.map(this.mapCorrection) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /capa/:id/rectification-evidence — Client uploads a "fixed" photo.
+  uploadRectificationEvidence = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      if (!req.file) {
+        throw new AppError('No file uploaded', 400);
+      }
+      const capa = await this.assertClientCAPAAccess(id, req);
+      if (capa.status === 'Closed' || capa.rectification_status === 'Approved') {
+        throw new AppError('This item is already closed', 409);
+      }
+      const result = await db.query(
+        `INSERT INTO capa_evidences (capa_id, file_name, file_path, file_type, file_size, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, file_path`,
+        [id, req.file.originalname, req.file.path, req.file.mimetype, req.file.size, req.user!.id]
+      );
+      res.json({
+        success: true,
+        data: { fileId: result.rows[0].id, filePath: result.rows[0].file_path },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // DELETE /capa/:id/rectification-evidence/:evidenceId — Client removes a fix photo
+  // (only while not yet approved).
+  deleteRectificationEvidence = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id, evidenceId } = req.params;
+      const capa = await this.assertClientCAPAAccess(id, req);
+      if (capa.status === 'Closed' || capa.rectification_status === 'Approved') {
+        throw new AppError('This item is already closed', 409);
+      }
+      await db.query('DELETE FROM capa_evidences WHERE id = $1 AND capa_id = $2', [evidenceId, id]);
+      res.json({ success: true, message: 'Photo removed' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /capa/:id/submit-rectification — Client submits their fix for auditor review.
+  submitRectification = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const capa = await this.assertClientCAPAAccess(id, req);
+      if (capa.status === 'Closed' || capa.rectification_status === 'Approved') {
+        throw new AppError('This item is already closed', 409);
+      }
+      if (capa.rectification_status === 'Submitted') {
+        throw new AppError('This item is already submitted and awaiting review', 409);
+      }
+      // Require at least one "fixed" photo before it can be submitted.
+      const photos = await db.query('SELECT COUNT(*)::int AS n FROM capa_evidences WHERE capa_id = $1', [id]);
+      if (photos.rows[0].n === 0) {
+        throw new AppError('Upload at least one photo of the fix before submitting', 400);
+      }
+      await db.query(
+        `UPDATE capa SET
+           rectification_status = 'Submitted',
+           rectification_submitted_at = CURRENT_TIMESTAMP,
+           status = CASE WHEN status = 'Open' THEN 'In Progress' ELSE status END,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id]
+      );
+
+      // Notify package managers that a client submitted a fix (best-effort).
+      db.query(
+        `SELECT a.package_id, c.capa_number
+         FROM capa c JOIN audit_responses ar ON c.response_id = ar.id
+         JOIN audits a ON ar.audit_id = a.id WHERE c.id = $1`,
+        [id]
+      ).then(async (info) => {
+        if (!info.rows.length) return;
+        const { package_id, capa_number } = info.rows[0];
+        const managers = await getPackageManagers(package_id);
+        await Promise.all(
+          managers.map((mgrId: number) =>
+            createNotification(
+              mgrId,
+              'capa_assigned',
+              'Client submitted a fix',
+              `${capa_number}: the client uploaded rectification evidence and it needs review`,
+              { fromUserId: req.user?.id, entityType: 'capa', entityId: parseInt(id), actionUrl: '/rectifications', priority: 'high' }
+            ).catch(() => {})
+          )
+        );
+      }).catch(() => {});
+
+      res.json({ success: true, message: 'Submitted for review' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /capa/review-queue — auditor-side list of client submissions awaiting review.
+  getReviewQueue = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const filters: string[] = [`c.rectification_status = 'Submitted'`];
+      const params: any[] = [];
+      let idx = 1;
+      if (req.projectId) {
+        filters.push(`p.project_id = $${idx++}`);
+        params.push(req.projectId);
+      }
+      // Lower roles only see their own package
+      if (req.user!.roleName !== 'Super Admin' && req.user!.roleName !== 'PMC Head' && req.user!.packageId) {
+        filters.push(`a.package_id = $${idx++}`);
+        params.push(req.user!.packageId);
+      }
+      const result = await db.query(
+        `${CAPAController.CORRECTION_SELECT}
+         WHERE ${filters.join(' AND ')}
+         ORDER BY c.rectification_submitted_at ASC`,
+        params
+      );
+      res.json({ success: true, data: result.rows.map(this.mapCorrection) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /capa/:id/review — auditor Approves (closes) or Rejects (sends back).
+  reviewRectification = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { action, note } = req.body as { action?: string; note?: string };
+
+      // Reuse project-scoped access check (Super Admin any; others same project).
+      const capa = await assertCAPAAccess(id, req);
+      if (capa.status === 'Closed') {
+        throw new AppError('This item is already closed', 409);
+      }
+
+      if (action === 'approve') {
+        await db.query(
+          `UPDATE capa SET
+             rectification_status = 'Approved',
+             rectification_reviewed_by = $1,
+             rectification_reviewed_at = CURRENT_TIMESTAMP,
+             rectification_review_note = $2,
+             status = 'Closed',
+             closed_date = CURRENT_DATE,
+             verified_by = $1,
+             verification_remarks = COALESCE($2, 'Rectification approved'),
+             corrective_action = COALESCE(NULLIF(corrective_action, ''), 'Rectified by client (evidence attached)'),
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [req.user!.id, note || null, id]
+        );
+        return res.json({ success: true, message: 'Rectification approved and item closed' });
+      }
+
+      if (action === 'reject') {
+        if (!note || !note.trim()) {
+          throw new AppError('A reason is required when rejecting', 400);
+        }
+        await db.query(
+          `UPDATE capa SET
+             rectification_status = 'Rejected',
+             rectification_reviewed_by = $1,
+             rectification_reviewed_at = CURRENT_TIMESTAMP,
+             rectification_review_note = $2,
+             status = CASE WHEN status = 'Open' THEN 'In Progress' ELSE status END,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [req.user!.id, note.trim(), id]
+        );
+        return res.json({ success: true, message: 'Sent back to the client' });
+      }
+
+      throw new AppError('action must be "approve" or "reject"', 400);
+    } catch (error) {
+      next(error);
+    }
+  };
 }

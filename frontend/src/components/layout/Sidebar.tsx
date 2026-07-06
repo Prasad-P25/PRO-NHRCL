@@ -48,6 +48,7 @@ const navItems: NavItem[] = [
       { title: 'Open CAPA', href: '/capa/open' },
       { title: 'My CAPA', href: '/capa/my' },
       { title: 'Overdue', href: '/capa/overdue' },
+      { title: 'Client Corrections', href: '/rectifications' },
     ],
   },
   {
@@ -108,10 +109,18 @@ export function Sidebar() {
   // Get role name - handle both nested role object and direct roleName property
   const userRoleName = user?.role?.name || (user as any)?.roleName || '';
 
-  const filteredNavItems = navItems.filter((item) => {
-    if (!item.roles) return true;
-    return item.roles.includes(userRoleName);
-  });
+  // Clients get a stripped-down menu: only their rectification portal.
+  const clientNavItems: NavItem[] = [
+    { title: 'Items to Fix', href: '/my-corrections', icon: ClipboardCheck },
+  ];
+
+  const filteredNavItems =
+    userRoleName === 'Client'
+      ? clientNavItems
+      : navItems.filter((item) => {
+          if (!item.roles) return true;
+          return item.roles.includes(userRoleName);
+        });
 
   return (
     <aside
