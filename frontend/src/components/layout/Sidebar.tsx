@@ -6,7 +6,6 @@ import {
   FileText,
   Settings,
   ChevronDown,
-  Gauge,
   Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -57,19 +56,10 @@ const navItems: NavItem[] = [
     icon: FileText,
   },
   {
-    title: 'Maturity Assessment',
-    icon: Gauge,
-    children: [
-      { title: 'New Assessment', href: '/maturity/new' },
-      { title: 'Assessment History', href: '/maturity' },
-    ],
-  },
-  {
     title: 'Projects',
     icon: Building2,
     roles: ['Super Admin'],
     children: [
-      { title: 'Comparison Dashboard', href: '/projects/dashboard' },
       { title: 'Manage Projects', href: '/projects' },
     ],
   },

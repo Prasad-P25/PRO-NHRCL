@@ -10,8 +10,6 @@ import { CAPAListPage } from '@/pages/CAPAList';
 import { ClientCorrectionsPage } from '@/pages/ClientCorrections';
 import { RectificationReviewPage } from '@/pages/RectificationReview';
 import { ReportsPage } from '@/pages/Reports';
-import { MaturityListPage } from '@/pages/MaturityList';
-import { MaturityAssessmentPage } from '@/pages/MaturityAssessment';
 import { UserManagementPage } from '@/pages/UserManagement';
 import { RoleManagementPage } from '@/pages/RoleManagement';
 import { ChecklistManagementPage } from '@/pages/ChecklistManagement';
@@ -19,7 +17,6 @@ import { ProfilePage } from '@/pages/Profile';
 import { ProjectListPage } from '@/pages/ProjectList';
 import { ProjectCreatePage } from '@/pages/ProjectCreate';
 import { ProjectSettingsPage } from '@/pages/ProjectSettings';
-import { ProjectDashboardPage } from '@/pages/ProjectDashboard';
 import { CAPAAnalyticsPage } from '@/pages/CAPAAnalytics';
 import { RoleGuard } from '@/components/layout/RoleGuard';
 import { useAuthStore } from '@/store/authStore';
@@ -87,15 +84,9 @@ function App() {
         {/* Reports */}
         <Route path="/reports" element={<ReportsPage />} />
 
-        {/* Maturity Assessment */}
-        <Route path="/maturity" element={<MaturityListPage />} />
-        <Route path="/maturity/new" element={<MaturityListPage />} />
-        <Route path="/maturity/:id" element={<MaturityAssessmentPage />} />
-
         {/* Projects (Super Admin only) */}
         <Route path="/projects" element={<RoleGuard roles={['Super Admin']}><ProjectListPage /></RoleGuard>} />
         <Route path="/projects/new" element={<RoleGuard roles={['Super Admin']}><ProjectCreatePage /></RoleGuard>} />
-        <Route path="/projects/dashboard" element={<RoleGuard roles={['Super Admin']}><ProjectDashboardPage /></RoleGuard>} />
         <Route path="/projects/:id/settings" element={<RoleGuard roles={['Super Admin']}><ProjectSettingsPage /></RoleGuard>} />
 
         {/* Settings (Super Admin only) */}

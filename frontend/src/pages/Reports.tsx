@@ -10,7 +10,6 @@ import {
   BarChart3,
   Activity,
   FileSpreadsheet,
-  Clock,
   Calendar,
   Play,
   Pause,
@@ -611,7 +610,7 @@ export function ReportsPage() {
 
       {/* Report Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
           <TabsTrigger value="compliance">
             <CheckCircle className="mr-2 h-4 w-4" />
             Compliance
@@ -631,14 +630,6 @@ export function ReportsPage() {
           <TabsTrigger value="comparison">
             <BarChart3 className="mr-2 h-4 w-4" />
             Comparison
-          </TabsTrigger>
-          <TabsTrigger value="kpi">
-            <Activity className="mr-2 h-4 w-4" />
-            KPI
-          </TabsTrigger>
-          <TabsTrigger value="scheduled">
-            <Clock className="mr-2 h-4 w-4" />
-            Scheduled
           </TabsTrigger>
         </TabsList>
 
