@@ -83,6 +83,18 @@ export function UserManagementPage() {
     queryFn: () => settingsService.getPackages(),
   });
 
+  // Only surface the roles actually used in this deployment. The others
+  // (PMC Head, Package Manager, Contractor, Viewer) still exist in the DB but
+  // are hidden from the dropdowns to avoid picking the wrong one (e.g. the old
+  // "Contractor" instead of "Client"). To re-enable one, add its name here.
+  const VISIBLE_ROLE_NAMES = ['Super Admin', 'Auditor', 'Client'];
+  const visibleRoles = (rolesData?.data || []).filter((r) => VISIBLE_ROLE_NAMES.includes(r.name));
+  // When editing an existing user, keep their current role visible even if it
+  // is normally hidden, so opening the form never silently changes their role.
+  const formRoles = (rolesData?.data || []).filter(
+    (r) => VISIBLE_ROLE_NAMES.includes(r.name) || r.id === formData.roleId
+  );
+
   // Create mutation
   const createMutation = useMutation({
     mutationFn: (data: CreateUserData) => settingsService.createUser(data),
@@ -256,7 +268,7 @@ export function UserManagementPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  {rolesData?.data?.map((role) => (
+                  {visibleRoles.map((role) => (
                     <SelectItem key={role.id} value={role.id.toString()}>
                       {role.name}
                     </SelectItem>
@@ -447,7 +459,7 @@ export function UserManagementPage() {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {rolesData?.data?.map((role) => (
+                  {formRoles.map((role) => (
                     <SelectItem key={role.id} value={role.id.toString()}>
                       {role.name}
                     </SelectItem>
