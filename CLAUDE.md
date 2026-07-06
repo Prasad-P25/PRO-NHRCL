@@ -85,6 +85,8 @@ Frontend tests in `frontend/src/**/*.{test,spec}.{ts,tsx}`, backend tests in `ba
 
 **CAPA:**
 - `capa` - Corrective/Preventive Actions (response_id FK, finding_description, root_cause, corrective_action, preventive_action, responsible_person, target_date, status, verified_by)
+  - **Client rectification flow** (migration 008): `rectification_status` (To Fix → Submitted → Approved/Rejected), `rectification_submitted_at`, `rectification_reviewed_by`, `rectification_reviewed_at`, `rectification_review_note`. Tracked separately from `status` so existing CAPA analytics/close logic is untouched. Approving a rectification also closes the CAPA.
+- `capa_evidences` - Client "fixed / after" photos for a CAPA (capa_id FK), kept separate from the auditor's original `audit_evidences` "problem / before" photos.
 
 **KPI:**
 - `kpi_indicators` - 14 indicator definitions (7 Leading, 7 Lagging) with formulas and benchmarks
@@ -268,13 +270,14 @@ Open → In Progress → Closed (with verification)
 - Logout adds token to in-memory blacklist (hourly cleanup)
 - Password reset via email token (1-hour expiry)
 
-### Role Hierarchy (6 roles)
+### Role Hierarchy (7 roles)
 1. **Super Admin** - Full system access, sees all projects
 2. **PMC Head** - Project oversight, can approve audits
 3. **Package Manager** - Package-level access, CAPA management
 4. **Auditor** - Conduct audits
 5. **Contractor** - Limited data access
 6. **Viewer** - Read-only
+7. **Client** - External client scoped to ONE package (`users.package_id`). Sees a stripped-down UI with ONLY their package's Non-Compliance items (the Client Rectification Portal at `/my-corrections`); uploads "fixed" photos and submits for auditor approval. Redirected from `/` to `/my-corrections` (no dashboard). Auditors/PMC/PM review submissions at `/rectifications` (Client Corrections). Client endpoints are package-scoped server-side (IDOR-safe); the review endpoints are project-scoped. See migration 008 + `capa.controller.ts` (getMyCorrections / uploadRectificationEvidence / submitRectification / getReviewQueue / reviewRectification).
 
 ### Multi-Project Support
 - Frontend sends `X-Project-Id` header with every request
