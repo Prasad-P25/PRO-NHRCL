@@ -733,13 +733,15 @@ export class AuditController {
             throw new AppError('Only draft/in-progress audits can be submitted', 409);
           }
 
-          // Auto-create CAPAs for NC items marked as "CAPA Required"
+          // Auto-create a CAPA (client fix-task) for EVERY Non-Compliance item.
+          // (Previously only NC items explicitly ticked "CAPA Required" became
+          // CAPAs — an easy-to-miss step — so every NC now becomes a fix-task.)
           const capaRequiredResponses = await client.query(
             `SELECT ar.id as response_id, ar.observation, ai.audit_point, a.audit_number
              FROM audit_responses ar
              JOIN audit_items ai ON ar.audit_item_id = ai.id
              JOIN audits a ON ar.audit_id = a.id
-             WHERE ar.audit_id = $1 AND ar.capa_required = true AND ar.status = 'NC'
+             WHERE ar.audit_id = $1 AND ar.status = 'NC'
              AND NOT EXISTS (SELECT 1 FROM capa c WHERE c.response_id = ar.id)`,
             [id]
           );
