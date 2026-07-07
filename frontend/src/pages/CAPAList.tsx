@@ -66,15 +66,15 @@ function getInitialStatusFilter(pathname: string): string {
 // Get page title based on route
 function getPageTitle(pathname: string): { title: string; description: string } {
   if (pathname === '/capa/open') {
-    return { title: 'Open CAPAs', description: 'View and manage open Corrective and Preventive Actions' };
+    return { title: 'Open Corrections', description: 'Non-compliance items that still need to be fixed' };
   }
   if (pathname === '/capa/my') {
-    return { title: 'My CAPAs', description: 'CAPAs assigned to you' };
+    return { title: 'My Corrections', description: 'Corrections assigned to you' };
   }
   if (pathname === '/capa/overdue') {
-    return { title: 'Overdue CAPAs', description: 'CAPAs past their target date' };
+    return { title: 'Overdue Corrections', description: 'Corrections past their target date' };
   }
-  return { title: 'CAPA Management', description: 'Track and manage Corrective and Preventive Actions' };
+  return { title: 'Corrections', description: 'Track and manage items to be fixed' };
 }
 
 export function CAPAListPage() {
@@ -255,7 +255,7 @@ export function CAPAListPage() {
       <div className="flex items-center justify-center h-96">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="text-destructive">Failed to load CAPAs</CardTitle>
+            <CardTitle className="text-destructive">Failed to load corrections</CardTitle>
             <CardDescription>Unable to connect to the server.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -332,7 +332,7 @@ export function CAPAListPage() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by CAPA #, person, finding..."
+                placeholder="Search by ID, person, finding..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -371,7 +371,7 @@ export function CAPAListPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>CAPA #</TableHead>
+                <TableHead>Ref #</TableHead>
                 <TableHead>Package</TableHead>
                 <TableHead>Audit</TableHead>
                 <TableHead>Finding</TableHead>
@@ -385,7 +385,7 @@ export function CAPAListPage() {
               {filteredCAPAs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No CAPAs found
+                    No corrections found
                   </TableCell>
                 </TableRow>
               ) : (
@@ -459,7 +459,7 @@ export function CAPAListPage() {
                               size="sm"
                               className="text-green-600 hover:text-green-700 hover:bg-green-50"
                               onClick={() => openCloseDialog(capa)}
-                              title="Close CAPA"
+                              title="Close Correction"
                             >
                               <CheckCircle className="h-4 w-4 mr-1" />
                               <span className="hidden sm:inline">Close</span>
@@ -654,7 +654,7 @@ export function CAPAListPage() {
                       }}
                     >
                       <CheckCircle className="mr-2 h-4 w-4" />
-                      Close CAPA
+                      Close Correction
                     </Button>
                   </>
                 )}
@@ -664,11 +664,11 @@ export function CAPAListPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Close CAPA Dialog */}
+      {/* Close Correction Dialog */}
       <Dialog open={isCloseDialogOpen} onOpenChange={setIsCloseDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Close CAPA</DialogTitle>
+            <DialogTitle>Close Correction</DialogTitle>
             <DialogDescription>
               Are you sure you want to close {selectedCAPA?.capaNumber}? This action confirms that
               the corrective and preventive actions have been implemented and verified.
@@ -692,7 +692,7 @@ export function CAPAListPage() {
             </Button>
             <Button onClick={handleClose} disabled={closeMutation.isPending}>
               {closeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Close CAPA
+              Close Correction
             </Button>
           </DialogFooter>
         </DialogContent>

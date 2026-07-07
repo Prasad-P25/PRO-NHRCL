@@ -39,15 +39,13 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    title: 'CAPA',
+    title: 'Corrections',
     icon: AlertTriangle,
     children: [
-      { title: 'Analytics', href: '/capa/analytics' },
-      { title: 'All CAPAs', href: '/capa' },
-      { title: 'Open CAPA', href: '/capa/open' },
-      { title: 'My CAPA', href: '/capa/my' },
+      { title: 'All Corrections', href: '/capa' },
+      { title: 'Open', href: '/capa/open' },
       { title: 'Overdue', href: '/capa/overdue' },
-      { title: 'Client Corrections', href: '/rectifications' },
+      { title: 'Client Submissions', href: '/rectifications' },
     ],
   },
   {

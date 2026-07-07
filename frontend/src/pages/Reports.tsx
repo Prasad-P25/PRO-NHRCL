@@ -81,7 +81,7 @@ import type { Package } from '@/types';
 const REPORT_TYPES = [
   { value: 'compliance', label: 'Compliance Summary' },
   { value: 'ncs', label: 'Non-Conformances' },
-  { value: 'capa', label: 'CAPA Status' },
+  { value: 'capa', label: 'Corrections Status' },
   { value: 'trends', label: 'Trend Analysis' },
   { value: 'comparison', label: 'Package Comparison' },
   { value: 'kpi', label: 'KPI Report' },
@@ -387,7 +387,7 @@ export function ReportsPage() {
       { header: 'Count', key: 'count', width: 15 },
     ];
     exportReport(format, {
-      title: 'CAPA Status Report',
+      title: 'Corrections Status Report',
       subtitle: getFilterDescription(),
       columns,
       data: statusData,
@@ -424,7 +424,7 @@ export function ReportsPage() {
       { header: 'Total Audits', key: 'totalAudits', width: 12 },
       { header: 'Avg Compliance %', key: 'avgCompliance', width: 15 },
       { header: 'Total NCs', key: 'totalNCs', width: 10 },
-      { header: 'Open CAPAs', key: 'openCAPAs', width: 12 },
+      { header: 'Open Corrections', key: 'openCAPAs', width: 12 },
     ];
     exportReport(format, {
       title: 'Package Comparison Report',
@@ -621,7 +621,7 @@ export function ReportsPage() {
           </TabsTrigger>
           <TabsTrigger value="capa">
             <Activity className="mr-2 h-4 w-4" />
-            CAPA
+            Corrections
           </TabsTrigger>
           <TabsTrigger value="trends">
             <TrendingUp className="mr-2 h-4 w-4" />
@@ -826,7 +826,7 @@ export function ReportsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>CAPA Status Summary</CardTitle>
+              <CardTitle>Corrections Status Summary</CardTitle>
             </CardHeader>
             <CardContent>
               {capaLoading ? (
@@ -982,7 +982,7 @@ export function ReportsPage() {
                         <Legend />
                         <Bar dataKey="avgCompliance" name="Compliance %" fill="#22c55e" />
                         <Bar dataKey="totalNCs" name="Total NCs" fill="#ef4444" />
-                        <Bar dataKey="openCAPAs" name="Open CAPAs" fill="#f59e0b" />
+                        <Bar dataKey="openCAPAs" name="Open Corrections" fill="#f59e0b" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -994,7 +994,7 @@ export function ReportsPage() {
                         <TableHead className="text-right">Total Audits</TableHead>
                         <TableHead className="text-right">Avg Compliance</TableHead>
                         <TableHead className="text-right">Total NCs</TableHead>
-                        <TableHead className="text-right">Open CAPAs</TableHead>
+                        <TableHead className="text-right">Open Corrections</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

@@ -219,10 +219,10 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-amber-800 dark:text-amber-200">
-                    {stats.capaOverdue} Overdue CAPA{stats.capaOverdue > 1 ? 's' : ''} Require Attention
+                    {stats.capaOverdue} Overdue Correction{stats.capaOverdue > 1 ? 's' : ''} Require Attention
                   </h3>
                   <p className="text-sm text-amber-700 dark:text-amber-300">
-                    These corrective actions have passed their due date and need immediate action.
+                    These items have passed their due date and need immediate action.
                   </p>
                 </div>
               </div>
@@ -231,7 +231,7 @@ export function DashboardPage() {
                 className="border-amber-500 text-amber-700 hover:bg-amber-100"
                 onClick={() => navigate('/capa/overdue')}
               >
-                View Overdue CAPAs
+                View Overdue Corrections
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -303,7 +303,7 @@ export function DashboardPage() {
 
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/capa?status=overdue')}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">CAPA Overdue</CardTitle>
+            <CardTitle className="text-sm font-medium">Corrections Overdue</CardTitle>
             <Clock className="h-4 w-4 text-pending" />
           </CardHeader>
           <CardContent>
@@ -454,9 +454,9 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <PieChartIcon className="h-5 w-5" />
-              CAPA Status
+              Corrections Status
             </CardTitle>
-            <CardDescription>Distribution of CAPA statuses</CardDescription>
+            <CardDescription>Distribution of correction statuses</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[220px]">
@@ -497,7 +497,7 @@ export function DashboardPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No CAPA data available
+                  No corrections data available
                 </div>
               )}
             </div>

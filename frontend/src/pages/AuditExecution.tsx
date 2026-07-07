@@ -1879,12 +1879,12 @@ export function AuditExecutionPage() {
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
                   <div>
-                    <p className="font-medium text-amber-800">CAPA Items Created</p>
+                    <p className="font-medium text-amber-800">Corrections Created</p>
                     <p className="text-sm text-amber-700 mt-1">
-                      <span className="font-bold text-lg">{capaCount}</span> non-compliant items have been flagged for corrective action.
+                      <span className="font-bold text-lg">{capaCount}</span> non-compliant items are now fix-tasks for the contractor/client.
                     </p>
                     <p className="text-xs text-amber-600 mt-2">
-                      Track progress in the CAPA module.
+                      Track progress under Corrections.
                     </p>
                   </div>
                 </div>
@@ -1894,7 +1894,7 @@ export function AuditExecutionPage() {
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
                   <div>
-                    <p className="font-medium text-green-800">No CAPA Items</p>
+                    <p className="font-medium text-green-800">No Corrections Needed</p>
                     <p className="text-sm text-green-700 mt-1">
                       All audit items are compliant or not applicable.
                     </p>
@@ -1912,7 +1912,7 @@ export function AuditExecutionPage() {
           <DialogFooter className="gap-2 sm:gap-0">
             {capaCount > 0 && (
               <Button variant="outline" onClick={() => navigate('/capa')}>
-                View CAPA List
+                View Corrections
               </Button>
             )}
             <Button onClick={() => navigate('/audits')}>
