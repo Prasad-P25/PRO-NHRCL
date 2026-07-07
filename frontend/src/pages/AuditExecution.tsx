@@ -228,16 +228,15 @@ export function AuditExecutionPage() {
     enabled: auditId > 0,
   });
 
-  // Fetch all categories with sections for audit execution. Pass this audit's id
-  // so only THIS audit's custom (ad-hoc) points are returned — never another
-  // audit's added points leaking into the same section.
+  // Fetch the master checklist (categories + sections + items). This audit's own
+  // ad-hoc (custom) checkpoints come separately via auditData.customItems and are
+  // merged in below — so the master list here must NOT include custom items.
   const { data: allCategories, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['categories-with-sections', auditId],
+    queryKey: ['categories-with-sections'],
     queryFn: async () => {
-      const response = await auditService.getCategories(true, auditId);
+      const response = await auditService.getCategories(true);
       return response.data;
     },
-    enabled: !!auditId,
   });
 
   // Initialize responses from existing data

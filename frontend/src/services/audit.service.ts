@@ -24,12 +24,8 @@ export const auditService = {
   },
 
   // Categories
-  getCategories: async (includeSections?: boolean, auditId?: number): Promise<ApiResponse<AuditCategory[]>> => {
-    const params: Record<string, string> = {};
-    if (includeSections) params.includeSections = 'true';
-    // Scope custom (ad-hoc) checkpoints to this audit so another audit's added
-    // points never leak into this one.
-    if (auditId) params.auditId = String(auditId);
+  getCategories: async (includeSections?: boolean): Promise<ApiResponse<AuditCategory[]>> => {
+    const params = includeSections ? { includeSections: 'true' } : {};
     const response = await api.get<ApiResponse<AuditCategory[]>>('/audit-categories', { params });
     return response.data;
   },

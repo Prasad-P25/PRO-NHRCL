@@ -9,12 +9,6 @@ export class CategoryController {
     try {
       // Check if sections should be included (for audit execution)
       const includeSections = req.query.includeSections === 'true';
-      // Custom (ad-hoc) checkpoints are scoped to the audit they were created in.
-      // When an audit is being executed, pass its id so ONLY that audit's custom
-      // points are returned (never another audit's). Without an auditId we return
-      // just the master checklist (is_custom = false).
-      const auditIdRaw = parseInt(String(req.query.auditId ?? ''), 10);
-      const auditIdParam = Number.isFinite(auditIdRaw) ? auditIdRaw : 0;
 
       const categoryResult = await db.query(
         `SELECT ac.*,
@@ -56,18 +50,20 @@ export class CategoryController {
                         'auditPoint', ai.audit_point,
                         'standardReference', ai.standard_reference,
                         'evidenceRequired', ai.evidence_required,
-                        'priority', ai.priority,
-                        'isCustom', ai.is_custom,
-                        'createdInAuditId', ai.created_in_audit_id
+                        'priority', ai.priority
                       ) ORDER BY ai.sr_no
                     ) FILTER (WHERE ai.id IS NOT NULL) as items
              FROM audit_sections s
+             -- Master checklist only. A given audit's ad-hoc (custom) checkpoints
+             -- are returned separately by getAuditById as customItems (scoped to
+             -- that audit) and merged client-side, so including them here too would
+             -- double them up / leak one audit's custom points into another.
              LEFT JOIN audit_items ai ON s.id = ai.section_id AND ai.is_active = true
-               AND (ai.is_custom = false OR ai.created_in_audit_id = $2)
+               AND ai.is_custom = false
              WHERE s.category_id = $1
              GROUP BY s.id
              ORDER BY s.display_order`,
-            [cat.id, auditIdParam]
+            [cat.id]
           );
 
           return {
