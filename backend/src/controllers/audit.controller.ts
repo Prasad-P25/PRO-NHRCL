@@ -692,7 +692,9 @@ export class AuditController {
         [id]
       );
 
-      // Check if all NC items have at least one evidence
+      // Each NC item must have SOME proof: a photo OR a written observation note.
+      // (A missing document/register can't be photographed, so a note counts as
+      // evidence for it; a physical hazard is proven with a photo.)
       const ncWithoutEvidence = await db.query(
         `SELECT ar.id, ai.sr_no, ai.audit_point, s.name as section_name
          FROM audit_responses ar
@@ -700,18 +702,19 @@ export class AuditController {
          JOIN audit_sections s ON ai.section_id = s.id
          LEFT JOIN audit_evidences ae ON ar.id = ae.response_id
          WHERE ar.audit_id = $1 AND ar.status = 'NC'
+           AND COALESCE(TRIM(ar.observation), '') = ''
          GROUP BY ar.id, ai.sr_no, ai.audit_point, s.name
          HAVING COUNT(ae.id) = 0`,
         [id]
       );
 
-      // Evidence requirement for non-compliant items
+      // Block submit only for NC items that have NEITHER a photo NOR a note.
       if (ncWithoutEvidence.rows.length > 0) {
         const missingItems = ncWithoutEvidence.rows.map((r: any) =>
           `${r.section_name} - Item ${r.sr_no}`
         );
         throw new AppError(
-          `Cannot submit audit. The following NC items require evidence: ${missingItems.join(', ')}`,
+          `Cannot submit audit. Each NC item needs a photo OR a written observation. Missing on: ${missingItems.join(', ')}`,
           400
         );
       }
