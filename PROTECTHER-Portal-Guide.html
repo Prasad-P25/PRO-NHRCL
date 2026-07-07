@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PROTECTHER Audit Panel — How It Works</title>
+<style>
+  :root{
+    --navy:#0f172a; --blue:#2563eb; --blue-soft:#eff6ff; --amber:#f59e0b;
+    --green:#16a34a; --red:#dc2626; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:var(--ink);background:#f1f5f9;line-height:1.55}
+  .wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
+  header.cover{background:linear-gradient(135deg,var(--navy),var(--blue));color:#fff;border-radius:20px;padding:44px 32px;text-align:center;box-shadow:0 12px 30px rgba(2,6,23,.25)}
+  header.cover .logo{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#fff;color:var(--blue);font-weight:800;font-size:34px;border-radius:14px;margin-bottom:14px}
+  header.cover h1{font-size:30px;letter-spacing:.5px}
+  header.cover p{opacity:.9;margin-top:8px;font-size:16px}
+  header.cover .url{display:inline-block;margin-top:16px;background:rgba(255,255,255,.15);padding:8px 16px;border-radius:999px;font-size:14px}
+  section.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px 26px;margin-top:22px;box-shadow:0 2px 8px rgba(2,6,23,.04)}
+  h2{font-size:22px;color:var(--navy);display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  h2 .n{background:var(--blue);color:#fff;width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+  .sub{color:var(--muted);margin:2px 0 16px;font-size:15px}
+  .roles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .role{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fafbff}
+  .role .tag{font-weight:700;color:var(--blue);font-size:15px}
+  .role p{font-size:13.5px;color:var(--ink);margin-top:6px}
+  .flow{display:flex;flex-direction:column;gap:0}
+  .step-flow{display:flex;align-items:flex-start;gap:16px;position:relative;padding-bottom:20px}
+  .step-flow:not(:last-child)::before{content:"";position:absolute;left:19px;top:40px;bottom:-2px;width:2px;background:var(--line)}
+  .bubble{flex:none;width:40px;height:40px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;z-index:1}
+  .bubble.green{background:var(--green)} .bubble.amber{background:var(--amber)} .bubble.navy{background:var(--navy)}
+  .step-flow .body{padding-top:4px}
+  .step-flow .body b{font-size:16px}
+  .step-flow .body p{font-size:14px;color:var(--muted);margin-top:2px}
+  ol.steps{list-style:none;counter-reset:s}
+  ol.steps li{counter-increment:s;position:relative;padding:10px 0 10px 44px;border-bottom:1px dashed var(--line)}
+  ol.steps li:last-child{border-bottom:none}
+  ol.steps li::before{content:counter(s);position:absolute;left:0;top:8px;width:28px;height:28px;background:var(--blue-soft);color:var(--blue);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+  ol.steps li b{font-size:15px} ol.steps li span{color:var(--muted);font-size:14px}
+  .callout{border-left:4px solid var(--amber);background:#fffbeb;padding:14px 16px;border-radius:8px;margin-top:14px;font-size:14.5px}
+  .callout.blue{border-color:var(--blue);background:var(--blue-soft)}
+  .callout.green{border-color:var(--green);background:#f0fdf4}
+  .callout b{color:var(--navy)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12.5px;font-weight:700}
+  .pill.nc{background:#fee2e2;color:var(--red)} .pill.c{background:#dcfce7;color:var(--green)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .mini h3{font-size:16px;color:var(--navy);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .legend span{font-size:13px;background:#f8fafc;border:1px solid var(--line);padding:5px 10px;border-radius:8px}
+  @media (max-width:640px){.roles,.two{grid-template-columns:1fr}header.cover h1{font-size:24px}}
+  @media print{body{background:#fff}.wrap{max-width:100%}section.card,header.cover{box-shadow:none;break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <div class="logo">P</div>
+    <h1>PROTECTHER Audit Panel</h1>
+    <p>How the safety audit portal works — a guide for auditors &amp; contractors/clients</p>
+    <div class="url">🔗 https://audit.protecther.in</div>
+  </header>
+
+  <!-- WHAT -->
+  <section class="card">
+    <h2><span class="n">?</span> What is this portal</h2>
+    <p class="sub">One place to run safety audits and close out the findings — online, from any phone or computer.</p>
+    <p>A PROTECTHER <b>auditor</b> inspects a site and records what is compliant and what is not. Every problem found (a “Non-Compliance”) becomes a <b>Correction</b> — a task the <b>contractor/client</b> then fixes by uploading a photo of the fix. The auditor reviews and closes it. Everything is tracked in one place — no paper, no email chains.</p>
+  </section>
+
+  <!-- ROLES -->
+  <section class="card">
+    <h2><span class="n">1</span> Who uses it (roles)</h2>
+    <p class="sub">Everyone logs in at the same website; what they see depends on their role.</p>
+    <div class="roles">
+      <div class="role">
+        <div class="tag">👑 Admin</div>
+        <p>PROTECTHER office. Creates logins, oversees all projects, approves audits.</p>
+      </div>
+      <div class="role">
+        <div class="tag">🦺 Auditor</div>
+        <p>Conducts the site audit, records findings with photos/notes, and submits the report.</p>
+      </div>
+      <div class="role">
+        <div class="tag">🏗️ Client / Contractor</div>
+        <p>Sees <b>only their own package’s</b> problems, uploads photos of the fixes, submits for approval.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW TO JOIN -->
+  <section class="card">
+    <h2><span class="n">2</span> How to get a login (join the portal)</h2>
+    <p class="sub">Logins are created by the PROTECTHER Admin — no self sign-up.</p>
+    <ol class="steps">
+      <li><b>Admin creates the user</b> <span>— Settings → Users → Add User. Pick the role (Auditor or Client) and, for a client, their package (e.g. C3-S1).</span></li>
+      <li><b>You receive an email &amp; a temporary password</b> <span>— from the PROTECTHER office.</span></li>
+      <li><b>Log in</b> <span>— open https://audit.protecther.in and sign in.</span></li>
+      <li><b>Change your password</b> <span>— top-right → Profile (or use “Forgot password” on the login page).</span></li>
+    </ol>
+    <div class="callout blue">📱 <b>Tip:</b> On a phone you can “Add to Home Screen” so it opens like an app.</div>
+  </section>
+
+  <!-- THE WORKFLOW -->
+  <section class="card">
+    <h2><span class="n">3</span> The full work-flow (how a problem gets fixed)</h2>
+    <p class="sub">From site inspection to a closed, verified fix.</p>
+    <div class="flow">
+      <div class="step-flow"><div class="bubble">1</div><div class="body"><b>Auditor does the audit</b><p>Goes through the checklist and marks each point Compliant <span class="pill c">C</span> or Non-Compliant <span class="pill nc">NC</span>.</p></div></div>
+      <div class="step-flow"><div class="bubble">2</div><div class="body"><b>Auditor adds proof for each NC</b><p>A <b>photo</b> of the problem, or a <b>short written note</b> if there’s nothing to photograph (e.g. a missing document).</p></div></div>
+      <div class="step-flow"><div class="bubble navy">3</div><div class="body"><b>Auditor submits the report</b><p>Every NC automatically becomes a <b>Correction</b> (a fix-task). The audit goes to “Pending Review”.</p></div></div>
+      <div class="step-flow"><div class="bubble amber">4</div><div class="body"><b>Client logs in &amp; fixes</b><p>Sees only their package’s Corrections, does the work, and uploads a <b>photo of the fix</b> → taps <b>Submit for review</b>.</p></div></div>
+      <div class="step-flow"><div class="bubble">5</div><div class="body"><b>Auditor reviews the fix</b><p>Sees the “before” and “after” photos side by side → <b>Approve</b> (closes it) or <b>Reject</b> with a reason (sends it back).</p></div></div>
+      <div class="step-flow"><div class="bubble green">✓</div><div class="body"><b>Correction closed</b><p>The item is fixed, verified, and recorded — with full photo evidence.</p></div></div>
+    </div>
+  </section>
+
+  <!-- STEP BY STEP FOR AUDITOR & CLIENT -->
+  <section class="card">
+    <h2><span class="n">4</span> Step-by-step for each person</h2>
+    <div class="two">
+      <div class="mini">
+        <h3>🦺 If you are an Auditor</h3>
+        <ol class="steps">
+          <li><b>New Audit</b> <span>— pick the package &amp; categories.</span></li>
+          <li><b>Go point by point</b> <span>— tap each item, set C / NC / NA.</span></li>
+          <li><b>For every NC</b> <span>— add a photo <i>or</i> type a one-line note in “Observation”.</span></li>
+          <li><b>Save often</b> <span>— it auto-saves as you go.</span></li>
+          <li><b>Submit</b> <span>— when done. If a photo/note is missing it tells you exactly which item.</span></li>
+          <li><b>Later — review fixes</b> <span>— Corrections → Client Submissions → Approve or Reject.</span></li>
+        </ol>
+      </div>
+      <div class="mini">
+        <h3>🏗️ If you are a Client / Contractor</h3>
+        <ol class="steps">
+          <li><b>Open “Items to Fix”</b> <span>— your only screen; lists your package’s problems.</span></li>
+          <li><b>Read the finding</b> <span>— see the auditor’s note and photo.</span></li>
+          <li><b>Do the fix on site</b>.</li>
+          <li><b>Add fix photo</b> <span>— tap the camera and take a photo of the corrected work.</span></li>
+          <li><b>Submit for review</b> <span>— it goes to the auditor.</span></li>
+          <li><b>If rejected</b> <span>— read the reason, redo, and re-submit.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- KEY RULES -->
+  <section class="card">
+    <h2><span class="n">5</span> The important rules to remember</h2>
+    <div class="callout">📌 <b>Every NC needs a photo OR a written note</b> before the audit can be submitted. (Missing document? Just type a note — no photo needed.)</div>
+    <div class="callout green">✅ <b>Every NC automatically becomes a client Correction</b> when the audit is submitted — nothing extra to tick.</div>
+    <div class="callout blue">🔒 <b>A client sees only their own package</b> — never other sites, never the full checklist, only the problems they must fix.</div>
+    <div class="callout">👀 <b>The auditor always approves the fix</b> — a client’s photo does not close an item until an auditor accepts it.</div>
+  </section>
+
+  <!-- STATUS LEGEND -->
+  <section class="card">
+    <h2><span class="n">6</span> What the labels mean</h2>
+    <div class="legend">
+      <span><span class="pill c">C</span> Compliant — all good</span>
+      <span><span class="pill nc">NC</span> Non-Compliant — needs fixing</span>
+      <span><b>NA</b> Not Applicable</span>
+      <span><b>NV</b> Not Verified — not checked yet</span>
+      <span>🟠 <b>To Fix</b> — client hasn’t submitted</span>
+      <span>🕓 <b>In Review</b> — waiting for auditor</span>
+      <span>🟢 <b>Approved</b> — closed &amp; verified</span>
+      <span>↩️ <b>Rejected</b> — sent back to redo</span>
+    </div>
+  </section>
+
+  <footer>
+    PROTECTHER Audit Panel &nbsp;•&nbsp; https://audit.protecther.in &nbsp;•&nbsp; For a login or help, contact the PROTECTHER office.
+  </footer>
+
+</div>
+</body>
+</html>
