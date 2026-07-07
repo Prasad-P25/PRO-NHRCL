@@ -40,7 +40,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -1651,19 +1650,8 @@ export function AuditExecutionPage() {
                       className="mt-1"
                     />
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="capaRequired"
-                      checked={getResponse(selectedItem.id).capaRequired}
-                      onCheckedChange={(checked) =>
-                        updateResponse(selectedItem.id, { capaRequired: checked as boolean })
-                      }
-                    />
-                    <label htmlFor="capaRequired" className="text-sm font-medium">
-                      CAPA Required
-                    </label>
-                  </div>
+                  {/* "CAPA Required" checkbox removed — every NC now auto-creates a
+                      client fix-task on submit, so the tick is no longer needed. */}
                 </>
               )}
 
