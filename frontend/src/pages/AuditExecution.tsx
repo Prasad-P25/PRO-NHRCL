@@ -228,13 +228,16 @@ export function AuditExecutionPage() {
     enabled: auditId > 0,
   });
 
-  // Fetch all categories with sections for audit execution
+  // Fetch all categories with sections for audit execution. Pass this audit's id
+  // so only THIS audit's custom (ad-hoc) points are returned — never another
+  // audit's added points leaking into the same section.
   const { data: allCategories, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['categories-with-sections'],
+    queryKey: ['categories-with-sections', auditId],
     queryFn: async () => {
-      const response = await auditService.getCategories(true);
+      const response = await auditService.getCategories(true, auditId);
       return response.data;
     },
+    enabled: !!auditId,
   });
 
   // Initialize responses from existing data
